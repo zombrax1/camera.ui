@@ -7,7 +7,9 @@
 
 import axios from 'axios';
 import { exec } from 'child_process';
+import compareVersions from 'compare-versions';
 import fs from 'fs-extra';
+import path from 'path';
 import systeminformation from 'systeminformation';
 
 import LoggerService from '../../../services/logger/logger.service.js';
@@ -22,43 +24,146 @@ const { log } = LoggerService;
 
 let updating = false;
 
+const SOURCE_REPOSITORY = {
+  branch: 'master',
+  name: 'zombrax1/camera.ui',
+  url: 'https://github.com/zombrax1/camera.ui.git',
+};
+
+const SOURCE_REPOSITORY_API = `https://api.github.com/repos/${SOURCE_REPOSITORY.name}`;
+const SOURCE_REPOSITORY_RELEASE_URL = `${SOURCE_REPOSITORY_API}/releases`;
+const SOURCE_REPOSITORY_TAG_URL = `${SOURCE_REPOSITORY_API}/tags`;
+
 const setTimeoutAsync = (ms) => new Promise((res) => setTimeout(res, ms));
 
-const updatePlugin = (version) => {
-  return new Promise((resolve, reject) => {
-    updating = true;
+const normalizeVersion = (version) => version?.toString().trim().replace(/^v/i, '');
 
-    const moduleName = ConfigService.env.moduleName;
-    const globalPrefix = ConfigService.env.global;
-    const sudoMode = ConfigService.env.sudo;
+const sortVersions = (versions) => {
+  return [...new Set(versions.filter((version) => compareVersions.validate(version)))].sort((a, b) => {
+    if (compareVersions.compare(a, b, '>')) {
+      return -1;
+    }
 
-    const target = version ? version : 'latest';
+    if (compareVersions.compare(a, b, '<')) {
+      return 1;
+    }
 
-    const cmd = `${sudoMode ? 'sudo npm i -E -n' : 'npm i'} ${globalPrefix ? '-g' : ''} ${moduleName}@${target}`;
-
-    log.info(`Updating: ${cmd}`);
-
-    exec(cmd, (error, stdout, stderr) => {
-      if (error && error.code > 0) {
-        updating = false;
-        return reject(`Error with CMD: ${error.cmd}`);
-      }
-
-      if (stderr) {
-        stderr = stderr.toString();
-
-        if (!stderr.includes('npm WARN')) {
-          updating = false;
-          return reject(stderr);
-        }
-      }
-
-      log.info('Successfully updated!');
-      updating = false;
-
-      resolve(true);
-    });
+    return 0;
   });
+};
+
+const getSourceVersions = async () => {
+  try {
+    const response = await axios(SOURCE_REPOSITORY_RELEASE_URL, {
+      headers: {
+        accept: 'application/vnd.github+json',
+      },
+    });
+
+    const releaseVersions = response.data
+      .filter((release) => !release.draft)
+      .map((release) => normalizeVersion(release.tag_name));
+
+    const versions = sortVersions([...releaseVersions, ConfigService.version]);
+
+    if (versions.length > 0) {
+      return versions;
+    }
+  } catch (error) {
+    log.warn(`Failed to fetch GitHub releases: ${error.message}`, 'System', 'system');
+  }
+
+  try {
+    const response = await axios(SOURCE_REPOSITORY_TAG_URL, {
+      headers: {
+        accept: 'application/vnd.github+json',
+      },
+    });
+
+    return sortVersions([...response.data.map((tag) => normalizeVersion(tag.name)), ConfigService.version]);
+  } catch (error) {
+    log.warn(`Failed to fetch GitHub tags: ${error.message}`, 'System', 'system');
+  }
+
+  return [ConfigService.version];
+};
+
+const runUpdateCommand = (cmd, options = {}) => {
+  return new Promise((resolve, reject) => {
+    log.info(`Updating: ${cmd}`, 'System', 'system');
+
+    exec(
+      cmd,
+      {
+        maxBuffer: 50 * 1024 * 1024,
+        windowsHide: true,
+        ...options,
+      },
+      (error, stdout, stderr) => {
+        if (stdout) {
+          log.info(stdout.trim(), 'System', 'system');
+        }
+
+        if (stderr) {
+          log.warn(stderr.trim(), 'System', 'system');
+        }
+
+        if (error) {
+          return reject(error);
+        }
+
+        resolve(true);
+      }
+    );
+  });
+};
+
+const withLegacyOpenSsl = () => {
+  const nodeOptions = process.env.NODE_OPTIONS || '';
+
+  if (nodeOptions.includes('--openssl-legacy-provider')) {
+    return process.env;
+  }
+
+  return {
+    ...process.env,
+    NODE_OPTIONS: `${nodeOptions} --openssl-legacy-provider`.trim(),
+  };
+};
+
+const updateFromSourceRepository = async () => {
+  updating = true;
+
+  try {
+    const basePath = process.env.CUI_BASE_PATH || process.cwd();
+    const gitPath = path.resolve(basePath, '.git');
+
+    if (!(await fs.pathExists(gitPath))) {
+      throw new Error(`Source update requires a git checkout. Missing ${gitPath}`);
+    }
+
+    try {
+      await runUpdateCommand('git remote get-url origin', { cwd: basePath });
+    } catch {
+      await runUpdateCommand(`git remote add origin ${SOURCE_REPOSITORY.url}`, { cwd: basePath });
+    }
+
+    await runUpdateCommand(`git remote set-url origin ${SOURCE_REPOSITORY.url}`, { cwd: basePath });
+    await runUpdateCommand(`git fetch origin ${SOURCE_REPOSITORY.branch} --tags`, { cwd: basePath });
+    await runUpdateCommand(`git pull --ff-only origin ${SOURCE_REPOSITORY.branch}`, { cwd: basePath });
+    await runUpdateCommand('npm install', { cwd: basePath });
+    await runUpdateCommand('npm install --prefix ui --legacy-peer-deps', { cwd: basePath });
+    await runUpdateCommand('npm run build --prefix ui', {
+      cwd: basePath,
+      env: withLegacyOpenSsl(),
+    });
+
+    log.info('Successfully updated from source repository!', 'System', 'system');
+
+    return true;
+  } finally {
+    updating = false;
+  }
 };
 
 export const clearLog = async (req, res) => {
@@ -133,15 +238,27 @@ export const downloadLog = async (req, res) => {
 
 export const fetchNpm = async (req, res) => {
   try {
-    const moduleName = ConfigService.env.moduleName;
+    const versions = await getSourceVersions();
+    const versionMap = versions.reduce((data, version) => {
+      data[version] = {
+        name: SOURCE_REPOSITORY.name,
+        version,
+      };
 
-    const response = await axios(`https://registry.npmjs.org/${moduleName}`, {
-      headers: {
-        accept: 'application/vnd.npm.install-v1+json',
+      return data;
+    }, {});
+
+    res.status(200).send({
+      name: SOURCE_REPOSITORY.name,
+      'dist-tags': {
+        latest: versions[0] || ConfigService.version,
       },
+      repository: {
+        type: 'git',
+        url: SOURCE_REPOSITORY.url,
+      },
+      versions: versionMap,
     });
-
-    res.status(200).send(response.data);
   } catch (error) {
     res.status(500).send({
       statusCode: 500,
@@ -152,12 +269,25 @@ export const fetchNpm = async (req, res) => {
 
 export const getChangelog = async (req, res) => {
   try {
-    const moduleName = ConfigService.env.moduleName;
-    const version = req.query.version || ConfigService.version;
+    const version = normalizeVersion(req.query.version || ConfigService.version);
+    const tagName = `v${version}`;
 
-    const response = await axios(`https://unpkg.com/${moduleName}@${version}/CHANGELOG.md`);
+    try {
+      const response = await axios(`${SOURCE_REPOSITORY_RELEASE_URL}/tags/${tagName}`, {
+        headers: {
+          accept: 'application/vnd.github+json',
+        },
+      });
 
-    res.status(200).send(response.data);
+      const release = response.data;
+      const releaseNotes = release.body?.trim() || `No release notes were published for ${tagName}.`;
+
+      return res.status(200).send(`# ${release.name || tagName}\n\n${releaseNotes}`);
+    } catch (error) {
+      log.warn(`Failed to fetch GitHub release notes: ${error.message}`, 'System', 'system');
+    }
+
+    res.status(200).send(`No release notes were found for ${tagName}.`);
   } catch (error) {
     res.status(500).send({
       statusCode: 500,
@@ -452,7 +582,7 @@ export const updateSystem = async (req, res) => {
     req.setTimeout(timeout);
     res.setTimeout(timeout);
 
-    await updatePlugin(req.query.version);
+    await updateFromSourceRepository(req.query.version);
 
     Database.controller.emit('updated');
     Socket.io.emit('updated');

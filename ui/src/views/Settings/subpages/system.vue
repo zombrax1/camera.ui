@@ -13,10 +13,10 @@
       label.form-input-label {{ $t('version') }}
       span.tw-text-right(:class="updateAvailable ? 'tw-text-red-500' : 'tw-text-green-500'") {{ updateAvailable ? $t('update_available') : $t('up_to_date') }}
 
-    label.form-input-label {{ $t('update_or_downgrade') }}
-    v-select(:loading="loadingNpm" :disabled="loadingNpm" :value="currentVersion" v-model="currentVersion" :items="availableVersions" prepend-inner-icon="mdi-npm" append-outer-icon="mdi-update" background-color="var(--cui-bg-card)" solo)
+    label.form-input-label Update from GitHub
+    v-select(:loading="loadingNpm" :disabled="loadingNpm" :value="currentVersion" v-model="currentVersion" :items="availableVersions" prepend-inner-icon="mdi-github" append-outer-icon="mdi-update" background-color="var(--cui-bg-card)" solo)
       template(v-slot:prepend-inner)
-        v-icon.text-muted {{ icons['mdiNpm'] }}
+        v-icon.text-muted {{ icons['mdiGithub'] }}
       template(v-slot:append-outer)
         v-dialog(v-model="updateDialog" width="600" scrollable @click:outside="closeUpdateDialog" @keydown="closeUpdateDialog")
           template(v-slot:activator='{ on, attrs }')
@@ -241,7 +241,7 @@
 <script>
 import compareVersions from 'compare-versions';
 import VueMarkdown from 'vue-markdown';
-import { mdiAt, mdiCheckBold, mdiConsole, mdiFindReplace, mdiNpm, mdiNumeric, mdiUpdate, mdiWeb } from '@mdi/js';
+import { mdiAt, mdiCheckBold, mdiConsole, mdiFindReplace, mdiGithub, mdiNumeric, mdiUpdate, mdiWeb } from '@mdi/js';
 
 import { changeConfig, downloadConfig, getConfig, getConfigStat } from '@/api/config.api';
 import {
@@ -289,7 +289,7 @@ export default {
       mdiCheckBold,
       mdiConsole,
       mdiFindReplace,
-      mdiNpm,
+      mdiGithub,
       mdiNumeric,
       mdiUpdate,
       mdiWeb,
@@ -324,6 +324,7 @@ export default {
     configFile: {},
     dbFile: {},
     env: '',
+    installedVersion: null,
     latestVersion: null,
     serviceMode: false,
     updateAvailable: false,
@@ -373,6 +374,7 @@ export default {
       }
 
       this.serviceMode = config.data.serviceMode;
+      this.installedVersion = config.data.version;
       this.currentVersion = config.data.version;
 
       this.config = {
@@ -451,8 +453,8 @@ export default {
             this.availableVersions.push({ value: version, text: `${version}-latest` });
             const versionExist = this.availableVersions.some((v) => (v.value || v) === this.currentVersion);
 
-            if (version !== this.currentVersion && !versionExist) {
-              this.availableVersions.push(this.currentVersion);
+            if (version !== this.installedVersion && !versionExist) {
+              this.availableVersions.push(this.installedVersion);
             }
           } else {
             this.availableVersions.push(version);
@@ -472,7 +474,11 @@ export default {
 
       this.npmPackageName = pkg.data.name;
       this.latestVersion = relatedVersions[0].value || relatedVersions[0];
-      this.updateAvailable = compareVersions.compare(this.latestVersion, this.currentVersion, '>');
+      this.updateAvailable = compareVersions.compare(this.latestVersion, this.installedVersion, '>');
+
+      if (this.updateAvailable) {
+        this.currentVersion = this.latestVersion;
+      }
 
       //this.$watch('config', this.configWatcher, { deep: true });
 

@@ -1,5 +1,5 @@
 > [!NOTE]
-> This fork includes easier ONVIF and IPC camera discovery.
+> This repository includes easier ONVIF and IPC camera discovery.
 >
 > Install this repository from source to use those features.
 
@@ -29,9 +29,9 @@
 
 and much more...
 
-## What This Fork Adds
+## What This Repository Adds
 
-This fork adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP camera networks:
+This repository adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP camera networks:
 
 - **ONVIF Search**: Scan common ONVIF ports such as `8888`, `5000`, `8080`, and `80` on the local network.
 - **ONVIF Authentication**: Enter ONVIF credentials for devices that require authentication before stream profiles can be read.
@@ -48,7 +48,7 @@ This fork adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP c
 
 ## Requirements
 
-Install these before installing this fork:
+Install these before installing this repository:
 
 - **Node.js 22 or newer** with `npm`
 - **Git**
@@ -58,9 +58,9 @@ Install these before installing this fork:
 
 For camera discovery, make sure the computer and cameras are on the same LAN. Some cameras also require ONVIF to be enabled in the camera's own settings page.
 
-## Install This Fork
+## Install This Repository
 
-The public `camera.ui` npm package belongs to the upstream project. To use the ONVIF/IPC discovery features in this fork, install from this repository.
+The public `camera.ui` npm package belongs to the upstream project. To use the ONVIF/IPC discovery features here, install from this repository.
 
 ### 1. Download The Source
 
@@ -165,9 +165,9 @@ node ./bin/camera.ui.js
 ## Documentation
 
 - [camera.ui](#cameraui)
-  - [What This Fork Adds](#what-this-fork-adds)
+  - [What This Repository Adds](#what-this-repository-adds)
   - [Requirements](#requirements)
-  - [Install This Fork](#install-this-fork)
+  - [Install This Repository](#install-this-repository)
     - [1. Download The Source](#1-download-the-source)
     - [2. Install Dependencies](#2-install-dependencies)
     - [3. Build The Web Interface](#3-build-the-web-interface)
