@@ -3,8 +3,8 @@
 
 import checkDiskSpace from 'check-disk-space';
 import getFolderSize from 'get-folder-size';
+import jwt from 'jsonwebtoken';
 import { Server } from 'socket.io';
-import socketioJwt from 'socketio-jwt';
 import systeminformation from 'systeminformation';
 
 import LoggerService from '../services/logger/logger.service.js';
@@ -16,6 +16,46 @@ import CameraController from '../controller/camera/camera.controller.js';
 import MotionController from '../controller/motion/motion.controller.js';
 
 const { log } = LoggerService;
+
+const bearerToken = (authorization) => {
+  if (!authorization) {
+    return null;
+  }
+
+  const header = Array.isArray(authorization) ? authorization[0] : authorization;
+  const token = String(header).trim();
+
+  if (token.startsWith('Bearer ')) {
+    return token.slice(7).trim();
+  }
+
+  return token;
+};
+
+const socketToken = (socket) => {
+  return (
+    bearerToken(socket.handshake.headers?.authorization || socket.handshake.headers?.Authorization) ||
+    bearerToken(socket.handshake.auth?.token) ||
+    bearerToken(socket.handshake.query?.token)
+  );
+};
+
+const authorizeSocket = (socket, next) => {
+  try {
+    const token = socketToken(socket);
+
+    if (!token) {
+      return next(new Error('Unauthorized'));
+    }
+
+    socket.encoded_token = token;
+    socket.decoded_token = jwt.verify(token, ConfigService.interface.jwt_secret);
+
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
 
 export default class Socket {
   #streamTimeouts = new Map();
@@ -48,12 +88,7 @@ export default class Socket {
       },
     });
 
-    Socket.io.use(
-      socketioJwt.authorize({
-        secret: ConfigService.interface.jwt_secret,
-        handshake: true,
-      })
-    );
+    Socket.io.use(authorizeSocket);
 
     Socket.io.on('connection', async (socket) => {
       //check if token is valid
@@ -291,6 +326,10 @@ export default class Socket {
   }
 
   static async watchSystem() {
+    if (!Socket.io) {
+      return;
+    }
+
     await Socket.#handleUptime();
     await Socket.#handleCpuLoad();
     await Socket.#handleCpuTemperature();
@@ -328,7 +367,7 @@ export default class Socket {
       log.error(error, 'Socket');
     }
 
-    Socket.io.emit('uptime', Socket.#uptime);
+    Socket.io?.emit('uptime', Socket.#uptime);
   }
 
   static async #handleCpuLoad() {
@@ -360,7 +399,7 @@ export default class Socket {
       log.error(error, 'Socket');
     }
 
-    Socket.io.emit('cpuLoad', Socket.#cpuLoadHistory);
+    Socket.io?.emit('cpuLoad', Socket.#cpuLoadHistory);
   }
 
   static async #handleCpuTemperature() {
@@ -376,7 +415,7 @@ export default class Socket {
       log.error(error, 'Socket');
     }
 
-    Socket.io.emit('cpuTemp', Socket.#cpuTempHistory);
+    Socket.io?.emit('cpuTemp', Socket.#cpuTempHistory);
   }
 
   static async #handleMemoryUsage() {
@@ -411,7 +450,7 @@ export default class Socket {
       log.error(error, 'Socket');
     }
 
-    Socket.io.emit('memory', Socket.#memoryUsageHistory);
+    Socket.io?.emit('memory', Socket.#memoryUsageHistory);
   }
 
   static async handleDiskUsage() {
@@ -449,6 +488,6 @@ export default class Socket {
       log.error(error, 'Socket');
     }
 
-    Socket.io.emit('diskSpace', Socket.#diskSpaceHistory);
+    Socket.io?.emit('diskSpace', Socket.#diskSpaceHistory);
   }
 }

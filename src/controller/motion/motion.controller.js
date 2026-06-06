@@ -6,9 +6,9 @@ import has from 'lodash/has.js';
 import get from 'lodash/get.js';
 import { FileSystem, FtpSrv } from 'ftp-srv';
 import http from 'http';
-import ip from 'ip';
 import { simpleParser } from 'mailparser';
 import mqtt from 'mqtt';
+import os from 'os';
 import { parse } from 'url';
 import path from 'path';
 import { SMTPServer } from 'smtp-server';
@@ -22,6 +22,20 @@ import Socket from '../../api/socket.js';
 
 const { log } = LoggerService;
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const localIPv4Address = () => {
+  const interfaces = os.networkInterfaces();
+
+  for (const addresses of Object.values(interfaces)) {
+    for (const address of addresses || []) {
+      if (address.family === 'IPv4' && !address.internal) {
+        return address.address;
+      }
+    }
+  }
+
+  return '127.0.0.1';
+};
 
 const toDotNot = (input, parentKey) =>
   // eslint-disable-next-line unicorn/no-array-reduce, unicorn/prefer-object-from-entries
@@ -473,7 +487,7 @@ export default class MotionController {
   static startFtpServer() {
     log.debug('Setting up FTP server for motion detection...');
 
-    const ipAddr = ip.address('public', 'ipv4');
+    const ipAddr = localIPv4Address();
 
     const bunyan = Bunyan.createLogger({
       name: 'ftp',

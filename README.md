@@ -52,6 +52,8 @@ This fork adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP c
 
 ## Installation
 
+This fork now requires **Node.js 22 or newer**. The backend dependency set was updated around current Node LTS/runtime packages and will not install cleanly on the original Node 14 baseline.
+
 camera.ui can be installed as follows:
 
 ```
@@ -357,7 +359,7 @@ This plugin has been verified to work with the following apps/systems:
 - Android
 - Windows 10
 - macOS Catalina 10.15
-- Node >= 14
+- Node >= 22
 
 ### Browser
 

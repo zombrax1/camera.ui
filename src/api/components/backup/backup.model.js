@@ -11,6 +11,51 @@ import LoggerService from '../../../services/logger/logger.service.js';
 import Database from '../../database.js';
 
 const { log } = LoggerService;
+const RESTORE_ENTRY_TYPES = new Set(['File', 'Directory']);
+const RESTORE_ROOTS = ['database', 'recordings'];
+
+const isSafeRestoreEntry = (filePath, entry) => {
+  if (!filePath) {
+    return false;
+  }
+
+  const normalized = path.posix.normalize(filePath.replace(/\\/g, '/'));
+
+  if (
+    filePath.includes('\0') ||
+    path.isAbsolute(filePath) ||
+    path.win32.isAbsolute(filePath) ||
+    normalized === '..' ||
+    normalized.startsWith('../')
+  ) {
+    return false;
+  }
+
+  if (entry?.type && !RESTORE_ENTRY_TYPES.has(entry.type)) {
+    return false;
+  }
+
+  return (
+    normalized === 'info.json' ||
+    RESTORE_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`))
+  );
+};
+
+const ensureRestoreTarget = async (targetPath, type) => {
+  const stats = await fs.lstat(targetPath);
+
+  if (stats.isSymbolicLink()) {
+    throw new Error(`Invalid backup archive: ${path.basename(targetPath)} can not be a symbolic link`);
+  }
+
+  if (type === 'directory' && !stats.isDirectory()) {
+    throw new Error(`Invalid backup archive: ${path.basename(targetPath)} must be a directory`);
+  }
+
+  if (type === 'file' && !stats.isFile()) {
+    throw new Error(`Invalid backup archive: ${path.basename(targetPath)} must be a file`);
+  }
+};
 
 /**
  *
@@ -94,29 +139,40 @@ export const restoreBackup = async (file) => {
 
   log.info('Starting backup restore...');
 
-  // extract the tar
-  await tar.x({
-    cwd: backupDirectory,
-    file: backupPath,
-  });
+  try {
+    // extract the tar
+    await tar.x({
+      cwd: backupDirectory,
+      file: backupPath,
+      filter: isSafeRestoreEntry,
+    });
 
-  const infoFile = await fs.readJSON(`${backupDirectory}/info.json`);
+    const infoPath = path.resolve(backupDirectory, 'info.json');
+    const databasePath = path.resolve(backupDirectory, 'database');
+    const backupRecordingsPath = path.resolve(backupDirectory, 'recordings');
 
-  // move the content to desired directories
-  await fs.move(backupDirectory + '/database', ConfigService.databasePath, { overwrite: true });
-  await fs.move(backupDirectory + '/recordings', recordingsPath, { overwrite: true });
+    await ensureRestoreTarget(infoPath, 'file');
+    await ensureRestoreTarget(databasePath, 'directory');
+    await ensureRestoreTarget(backupRecordingsPath, 'directory');
 
-  // remove tmp
-  log.debug('Removing unnecessary files...');
-  await fs.remove(backupDirectory);
+    const infoFile = await fs.readJSON(infoPath);
 
-  // refresh db
-  await Database.interfaceDB.read();
-  await Database.refreshRecordingsDatabase();
+    // move the content to desired directories
+    await fs.move(databasePath, ConfigService.databasePath, { overwrite: true });
+    await fs.move(backupRecordingsPath, recordingsPath, { overwrite: true });
 
-  log.info('Backup was successfully restored');
+    // refresh db
+    await Database.interfaceDB.read();
+    await Database.refreshRecordingsDatabase();
 
-  return infoFile.localStorage;
+    log.info('Backup was successfully restored');
+
+    return infoFile.localStorage;
+  } finally {
+    // remove tmp
+    log.debug('Removing unnecessary files...');
+    await fs.remove(backupDirectory);
+  }
 };
 
 export const removeBackup = async (backup) => {

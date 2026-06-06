@@ -1,5 +1,5 @@
 <template lang="pug">
-.swiper-container(:id="notification.id" v-click-outside="onClickOutside")
+.swiper(:id="notification.id" v-click-outside="onClickOutside")
   .swiper-wrapper.tw-items-stretch
     .swiper-slide
       .tw-block.notification-card(:id="notification.id")
@@ -28,8 +28,8 @@
 /* eslint-disable vue/require-default-prop */
 
 import { mdiCloseCircle, mdiClockTimeNineOutline } from '@mdi/js';
-import 'swiper/dist/css/swiper.min.css';
-import { Swiper } from 'swiper/dist/js/swiper.esm.js';
+import 'swiper/swiper.css';
+import Swiper from 'swiper';
 
 export default {
   props: {
@@ -91,7 +91,7 @@ export default {
 </script>
 
 <style scoped>
-.swiper-container {
+.swiper {
   overflow: unset !important;
 }
 

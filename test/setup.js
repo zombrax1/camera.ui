@@ -18,10 +18,6 @@ let logTimestamps = '1';
 let logColourful = '1';
 let storagePath = path.resolve('test', 'camera.ui');
 
-// node-telegram-bot-api
-process.env.NTBA_FIX_319 = 1;
-process.env.NTBA_FIX_350 = 1;
-
 process.env.CUI_SERVICE_MODE = '1';
 
 process.env.CUI_LOG_COLOR = logColourful;

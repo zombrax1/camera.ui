@@ -25,8 +25,10 @@ export const discoverOnvif = async (req, res) => {
       result: devices,
     });
   } catch (error) {
-    res.status(500).send({
-      statusCode: 500,
+    const statusCode = error.statusCode || 500;
+
+    res.status(statusCode).send({
+      statusCode,
       message: error.message,
     });
   }
@@ -49,8 +51,10 @@ export const testOnvifRtsp = async (req, res) => {
       result,
     });
   } catch (error) {
-    res.status(500).send({
-      statusCode: 500,
+    const statusCode = error.statusCode || 500;
+
+    res.status(statusCode).send({
+      statusCode,
       message: error.message,
     });
   }
@@ -79,8 +83,10 @@ export const inspectOnvifDevice = async (req, res) => {
       result,
     });
   } catch (error) {
-    res.status(500).send({
-      statusCode: 500,
+    const statusCode = error.statusCode || 500;
+
+    res.status(statusCode).send({
+      statusCode,
       message: error.message,
     });
   }

@@ -1,5 +1,6 @@
 'use-strict';
 
+import net from 'net';
 import { spawn } from 'child_process';
 
 import ConfigService from '../../../services/config/config.service.js';
@@ -29,6 +30,8 @@ const COMMON_PATHS = [
   '/h264/ch1/sub/av_stream',
 ];
 
+const inputError = (message) => Object.assign(new Error(message), { statusCode: 400 });
+
 const redactUri = (uri) =>
   uri
     .replace(/(rtsp:\/\/[^:/@]+:)[^@]+@/i, '$1***@')
@@ -39,6 +42,21 @@ const redactUri = (uri) =>
 const cleanError = (message) => redactUri(`${message || ''}`.replace(/\s+/g, ' ').trim()).slice(0, 260);
 
 const encodeAuthPart = (value) => encodeURIComponent(value || '').replace(/%3A/gi, ':');
+
+const isPrivateCameraIp = (ip) => {
+  if (net.isIP(ip) !== 4) {
+    return false;
+  }
+
+  const [first, second] = ip.split('.').map((part) => Number.parseInt(part, 10));
+
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254)
+  );
+};
 
 const buildRtspUri = ({ host, port = DEFAULT_RTSP_PORT, path = '/', username = '', password = '', includeColon = true }) => {
   const safePath = path.startsWith('/') ? path : `/${path}`;
@@ -54,12 +72,20 @@ const uriParts = (uri, fallbackIp) => {
   try {
     const url = new URL(uri);
 
+    if (url.protocol !== 'rtsp:') {
+      throw inputError('Only RTSP URLs can be tested');
+    }
+
     return {
       host: url.hostname || fallbackIp,
       port: url.port || DEFAULT_RTSP_PORT,
       path: `${url.pathname || '/'}${url.search || ''}`,
     };
   } catch (error) {
+    if (uri) {
+      throw error.statusCode ? error : inputError('Invalid RTSP URL');
+    }
+
     return {
       host: fallbackIp,
       port: DEFAULT_RTSP_PORT,
@@ -80,6 +106,10 @@ export const candidatesFor = ({ ip, uri, username = '', password = '' }) => {
   const host = parts.host || ip;
   const port = parts.port || DEFAULT_RTSP_PORT;
   const originalPath = parts.path;
+
+  if (!isPrivateCameraIp(host)) {
+    throw inputError('RTSP testing is limited to private IPv4 camera addresses');
+  }
 
   if (username || password) {
     addCandidate(candidates, buildRtspUri({ host, port, path: originalPath, username, password }));

@@ -40,10 +40,6 @@ export default class CameraUI {
     process.env.CUI_LOG_COLOR = 1;
     process.env.CUI_LOG_TIMESTAMPS = 1;
 
-    // node-telegram-bot-api
-    process.env.NTBA_FIX_319 = 1;
-    process.env.NTBA_FIX_350 = 1;
-
     process.env.CUI_BASE_PATH = path.resolve(__dirname, '../');
 
     process.env.CUI_STORAGE_PATH = storagePath;

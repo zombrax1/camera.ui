@@ -94,7 +94,7 @@ export const findById = async (id) => {
   return notification;
 };
 
-export const createNotification = async (data) => {
+export const createNotification = async (data, options = {}) => {
   const camera = await Database.interfaceDB.chain.get('cameras').find({ name: data.camera }).cloneDeep().value();
   const camerasSettings = await Database.interfaceDB.chain.get('settings').get('cameras').cloneDeep().value();
 
@@ -157,7 +157,7 @@ export const createNotification = async (data) => {
     .cloneDeep()
     .value();
 
-  if (notificationSettings.active) {
+  if (options.forceStore || notificationSettings.active) {
     //Check notification size, if we exceed more than {100} notifications, remove the latest
     const notificationList = await Database.interfaceDB.chain.get('notifications').cloneDeep().value();
 

@@ -2,12 +2,16 @@
 
 import http from 'http';
 import crypto from 'crypto';
+import net from 'net';
 import os from 'os';
 
 const DEFAULT_PORTS = [8888, 8899, 5000, 8080, 80];
+const DEFAULT_PORT_SET = new Set(DEFAULT_PORTS);
 const ONVIF_PATHS = ['/onvif/device_service', '/onvif/device_service/', '/onvif/Device', '/onvif/device'];
 const REQUEST_TIMEOUT = 650;
 const DISCOVERY_CONCURRENCY = 160;
+
+const inputError = (message) => Object.assign(new Error(message), { statusCode: 400 });
 
 const envelope = (body) =>
   `<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body>${body}</s:Body></s:Envelope>`;
@@ -25,6 +29,27 @@ const toInteger = (ip) =>
 
 const fromInteger = (integer) =>
   [24, 16, 8, 0].map((shift) => (integer >>> shift) & 255).join('.');
+
+const isPrivateCameraIp = (ip) => {
+  if (net.isIP(ip) !== 4) {
+    return false;
+  }
+
+  const [first, second] = ip.split('.').map((part) => Number.parseInt(part, 10));
+
+  return (
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168) ||
+    (first === 169 && second === 254)
+  );
+};
+
+const normalizePorts = (ports = DEFAULT_PORTS) => {
+  const normalized = [...new Set(ports.map((port) => Number.parseInt(port, 10)).filter((port) => DEFAULT_PORT_SET.has(port)))];
+
+  return normalized.length ? normalized : DEFAULT_PORTS;
+};
 
 const prefixFromNetmask = (netmask) =>
   netmask
@@ -304,14 +329,28 @@ const inspectEndpoint = async (endpoint, credentials = {}) => {
 };
 
 export const inspectDevice = async ({ ip, port, path, username = '', password = '' }) => {
-  if (!ip || !port || !path) {
-    throw new Error('ONVIF IP, port, and path are required');
+  const normalizedPort = Number.parseInt(port, 10);
+
+  if (!ip || !normalizedPort || !path) {
+    throw inputError('ONVIF IP, port, and path are required');
+  }
+
+  if (!isPrivateCameraIp(ip)) {
+    throw inputError('ONVIF inspection is limited to private IPv4 camera addresses');
+  }
+
+  if (!DEFAULT_PORT_SET.has(normalizedPort)) {
+    throw inputError(`ONVIF inspection is limited to these ports: ${DEFAULT_PORTS.join(', ')}`);
+  }
+
+  if (!ONVIF_PATHS.includes(path)) {
+    throw inputError('Unsupported ONVIF service path');
   }
 
   return inspectEndpoint(
     {
       host: ip,
-      port,
+      port: normalizedPort,
       path,
       authRequired: true,
       server: '',
@@ -324,13 +363,18 @@ export const inspectDevice = async ({ ip, port, path, username = '', password = 
 };
 
 export const discover = async (ports = DEFAULT_PORTS) => {
+  const scanPorts = normalizePorts(ports);
   const hosts = getLocalHosts();
   const jobs = [];
   const endpoints = [];
   let index = 0;
 
   for (const host of hosts) {
-    for (const port of ports) {
+    if (!isPrivateCameraIp(host)) {
+      continue;
+    }
+
+    for (const port of scanPorts) {
       jobs.push({ host, port });
     }
   }

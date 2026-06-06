@@ -14,7 +14,7 @@ export const insert = async (req, res) => {
       });
     }
 
-    notification = await NotificationsModel.createNotification(req.body);
+    notification = await NotificationsModel.createNotification(req.body, { forceStore: true });
 
     res.status(201).send(notification);
   } catch (error) {

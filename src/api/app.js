@@ -126,13 +126,17 @@ export default class App {
     );
 
     const backupUpload = multer({
+      limits: {
+        fileSize: 200 * 1024 * 1024,
+        files: 1,
+      },
       storage: multer.diskStorage({
         destination: async (request, file, callback) => {
           const backupDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'cameraui-restore-'));
           callback(null, backupDirectory);
         },
         filename: (request, file, callback) => {
-          callback(null, file.originalname);
+          callback(null, 'backup.tar.gz');
         },
       }),
     });
