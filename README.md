@@ -33,6 +33,17 @@
 
 and much mure...
 
+## Added Camera Discovery Features
+
+This fork adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP camera networks:
+
+- **ONVIF Search**: Scan common ONVIF ports such as `8888`, `5000`, `8080`, and `80` on the local network.
+- **ONVIF Authentication**: Enter ONVIF credentials for devices that require authentication before stream profiles can be read.
+- **RTSP Testing**: Probe discovered ONVIF streams and common RTSP paths before adding a camera.
+- **IPC Camera Mode**: Add an IP camera manually by entering camera name, IP address, RTSP port, username, and password.
+- **Preview Thumbnail**: Show a small RTSP thumbnail when the tested stream can return a frame.
+- **Existing IP Highlighting**: Mark discovered or manually entered IP addresses that already exist in the camera list.
+
 **Supported Languages:** 
 
 :de: | :gb: | :netherlands: | :fr: | :thailand: | :es:

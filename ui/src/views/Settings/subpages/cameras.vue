@@ -22,6 +22,247 @@
               v-btn(color='var(--cui-primary)' text @click='onRemoveCamera') {{ $t('remove') }}
 
     AddCamera(@add="cameraAdded" :cameras="cameras")
+    v-dialog(v-model="onvifDialog" width="900" scrollable)
+      template(v-slot:activator='{ on, attrs }')
+        v-btn.tw-mt-3.tw-text-white(block color="var(--cui-primary)" v-bind='attrs' v-on='on' @click='openCameraDiscovery')
+          v-icon(left small) {{ icons['mdiAccessPointNetwork'] }}
+          span Find / Add Camera
+      v-card.onvif-dialog-card
+        v-card-title.onvif-dialog-title
+          .onvif-title-icon
+            v-icon(size="20") {{ onvifMode === 'search' ? icons['mdiAccessPointNetwork'] : icons['mdiCctv'] }}
+          span Find / Add Camera
+        v-divider
+        v-card-text.tw-p-7.text-default.onvif-dialog-body
+          v-progress-linear(:active="onvifLoading" :indeterminate="onvifLoading" color="var(--cui-primary)")
+          .onvif-mode-toggle.tw-mt-4
+            v-btn.onvif-mode-button(:class="{ 'onvif-mode-button--active': onvifMode === 'search' }" depressed @click="onvifMode = 'search'")
+              v-icon(left small) {{ icons['mdiAccessPointNetwork'] }}
+              span ONVIF Search
+            v-btn.onvif-mode-button(:class="{ 'onvif-mode-button--active': onvifMode === 'ipc' }" depressed @click="onvifMode = 'ipc'")
+              v-icon(left small) {{ icons['mdiCctv'] }}
+              span IPC Camera
+          template(v-if="onvifMode === 'search'")
+            v-row.tw-mt-3
+              v-col(cols="12" md="6")
+                label.form-input-label Default RTSP Username
+                v-text-field(v-model="onvifUsername" prepend-inner-icon="mdi-account" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiAccount'] }}
+              v-col(cols="12" md="6")
+                label.form-input-label Default RTSP Password
+                v-text-field(v-model="onvifPassword" type="password" prepend-inner-icon="mdi-key-variant" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiKeyVariant'] }}
+            .tw-mt-5.tw-text-center.text-muted.onvif-empty-state(v-if="!onvifLoading && !onvifDevices.length")
+              v-icon.tw-mr-1(small) {{ icons['mdiAccessPointNetwork'] }}
+              span No ONVIF cameras found
+          .onvif-ipc-box.tw-mt-5(v-else :class="{ 'onvif-ipc-box--added': ipcAddedCameras().length }")
+            .onvif-manual-heading
+              v-icon.onvif-manual-icon(size="18") {{ icons['mdiCctv'] }}
+              span IPC mode adds a camera directly by IP and RTSP port.
+            .onvif-device-meta-row(v-if="ipcAddedCameras().length")
+              .onvif-device-pill.onvif-device-pill--added
+                v-icon.onvif-chip-icon(size="13") {{ icons['mdiCheckDecagram'] }}
+                span Already added: {{ ipcAddedCameras().join(', ') }}
+            v-row.tw-mt-2.tw-items-start
+              v-col(cols="12" md="4")
+                label.form-input-label Camera Name
+                v-text-field(v-model="ipcCamera.name" prepend-inner-icon="mdi-camera-iris" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiCameraIris'] }}
+              v-col(cols="12" md="4")
+                label.form-input-label IP Address
+                v-text-field(v-model.trim="ipcCamera.ip" prepend-inner-icon="mdi-ip-network" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo @input="onIpcIpInput")
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiIpNetwork'] }}
+              v-col(cols="12" md="4")
+                label.form-input-label RTSP Port
+                v-text-field(v-model.number="ipcCamera.port" type="number" min="1" max="65535" prepend-inner-icon="mdi-numeric" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo @input="resetIpcRtspResult")
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiNumeric'] }}
+              v-col(cols="12" md="4")
+                label.form-input-label RTSP Username
+                v-text-field(v-model="ipcCamera.username" prepend-inner-icon="mdi-account" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo @input="resetIpcRtspResult")
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiAccount'] }}
+              v-col(cols="12" md="4")
+                label.form-input-label RTSP Password
+                v-text-field(v-model="ipcCamera.password" type="password" prepend-inner-icon="mdi-key-variant" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo @input="resetIpcRtspResult")
+                  template(v-slot:prepend-inner)
+                    v-icon.text-muted {{ icons['mdiKeyVariant'] }}
+              v-col(cols="12" md="4" v-if="ipcCamera.thumbnail || ipcCamera.thumbnailError")
+                label.form-input-label
+                  v-icon.onvif-label-icon(size="14") {{ icons['mdiImageFrame'] }}
+                  span Preview
+                .onvif-rtsp-preview-box
+                  img.onvif-rtsp-thumbnail(v-if="ipcCamera.thumbnail" :src="ipcCamera.thumbnail" alt="RTSP preview")
+                  v-icon.text-muted(v-else size="20") {{ icons['mdiImageFrame'] }}
+            .tw-text-sm.tw-mt-1.onvif-result-line(v-if="ipcCamera.rtspMessage" :class="ipcCamera.rtspOk ? 'success--text' : 'error--text'")
+              v-icon.tw-mr-1(small) {{ ipcCamera.rtspOk ? icons['mdiCheckCircle'] : icons['mdiCloseCircle'] }}
+              span {{ ipcCamera.rtspMessage }}
+            .tw-text-xs.text-muted.tw-break-all(v-if="ipcCamera.displayUri") {{ ipcCamera.displayUri }}
+            .tw-text-xs.text-muted(v-if="ipcCamera.thumbnailError") Preview unavailable: {{ ipcCamera.thumbnailError }}
+            .onvif-ipc-actions.tw-mt-4
+              v-btn(color="var(--cui-primary)" text @click="testIpcRtsp" :loading="ipcTesting" :disabled="!!onvifAdding")
+                v-icon(left small) {{ icons['mdiTestTube'] }}
+                span Test RTSP
+              v-btn.tw-text-white(color="success" @click="addIpcCamera" :loading="onvifAdding === 'ipc'" :disabled="ipcTesting")
+                v-icon(left small) {{ icons['mdiPlusCircle'] }}
+                span Add IPC Camera
+          v-expansion-panels.tw-mt-5.onvif-device-list(v-if="onvifMode === 'search' && onvifDevices.length" v-model="onvifPanel")
+            v-expansion-panel.onvif-device-panel(v-for="(device, deviceIndex) in onvifDevices" :key="device.ip + ':' + device.port" :class="{ 'onvif-device-panel--active': onvifPanel === deviceIndex, 'onvif-device-panel--added': onvifDeviceAlreadyAdded(device), 'onvif-device-panel--auth': device.authRequired && !device.streams.length }")
+              v-expansion-panel-header.onvif-device-header
+                .onvif-device-header-content
+                  .onvif-device-icon
+                    v-icon(size="20") {{ icons['mdiCameraIris'] }}
+                  div
+                    .page-subtitle.onvif-device-address
+                      v-icon.onvif-inline-icon(size="15") {{ icons['mdiIpNetwork'] }}
+                      span {{ device.ip }}:{{ device.port }}
+                    .page-header-info.tw-mt-1 {{ onvifDeviceLabel(device) }}
+                    .onvif-device-meta-row
+                      .onvif-device-pill
+                        v-icon.onvif-chip-icon(size="13") {{ icons['mdiAccessPointNetwork'] }}
+                        span ONVIF
+                      .onvif-device-pill(v-if="device.streams.length")
+                        v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
+                        span {{ device.streams.length }} stream{{ device.streams.length === 1 ? '' : 's' }}
+                      .onvif-device-pill.onvif-device-pill--added(v-if="onvifDeviceAlreadyAdded(device)")
+                        v-icon.onvif-chip-icon(size="13") {{ icons['mdiCheckDecagram'] }}
+                        span Added: {{ onvifDeviceAddedCameras(device).join(', ') }}
+                      .onvif-device-pill.onvif-device-pill--warning(v-if="device.authRequired && !device.streams.length")
+                        v-icon.onvif-chip-icon(size="13") {{ icons['mdiLockAlert'] }}
+                        span Auth needed
+                      .onvif-device-pill.onvif-device-pill--manual(v-if="onvifShowManualRtsp(device)")
+                        v-icon.onvif-chip-icon(size="13") {{ icons['mdiCctvOff'] }}
+                        span Manual RTSP
+              v-expansion-panel-content
+                .onvif-auth-box(v-if="device.authRequired && !device.streams.length")
+                  .onvif-auth-heading
+                    v-icon.onvif-auth-icon(size="18") {{ icons['mdiLockAlert'] }}
+                    span ONVIF authentication is required before stream details can be read.
+                  v-row.tw-mt-2(v-if="onvifDeviceDrafts[onvifDeviceKey(device)]")
+                    v-col(cols="12" md="4")
+                      label.form-input-label ONVIF Username
+                      v-text-field(v-model="onvifDeviceDrafts[onvifDeviceKey(device)].username" prepend-inner-icon="mdi-account" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                        template(v-slot:prepend-inner)
+                          v-icon.text-muted {{ icons['mdiAccount'] }}
+                    v-col(cols="12" md="4")
+                      label.form-input-label ONVIF Password
+                      v-text-field(v-model="onvifDeviceDrafts[onvifDeviceKey(device)].password" type="password" prepend-inner-icon="mdi-key-variant" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                        template(v-slot:prepend-inner)
+                          v-icon.text-muted {{ icons['mdiKeyVariant'] }}
+                    v-col(cols="12" md="4")
+                      label.form-input-label &nbsp;
+                      v-btn.tw-text-white(block color="var(--cui-primary)" @click="inspectOnvifDevice(device, deviceIndex)" :loading="onvifInspecting === onvifDeviceKey(device)")
+                        v-icon(left small) {{ icons['mdiLockOpenVariant'] }}
+                        span Load streams
+                  .tw-text-sm.tw-mt-1(v-if="onvifDeviceDrafts[onvifDeviceKey(device)] && onvifDeviceDrafts[onvifDeviceKey(device)].message" :class="onvifDeviceDrafts[onvifDeviceKey(device)].ok ? 'success--text' : 'error--text'")
+                    v-icon.tw-mr-1(small) {{ onvifDeviceDrafts[onvifDeviceKey(device)].ok ? icons['mdiCheckCircle'] : icons['mdiCloseCircle'] }}
+                    span {{ onvifDeviceDrafts[onvifDeviceKey(device)].message }}
+                .onvif-manual-box(v-if="onvifShowManualRtsp(device) && onvifManualDrafts[onvifManualKey(device)]")
+                  .onvif-manual-heading
+                    v-icon.onvif-manual-icon(size="18") {{ icons['mdiCctvOff'] }}
+                    span ONVIF was detected, but no stream profiles were returned. Try RTSP directly by IP.
+                  v-list.onvif-stream-list(dense color="transparent")
+                    v-list-item.onvif-stream-card.onvif-manual-card(:class="onvifManualStateClass(device)")
+                      v-list-item-content
+                        .onvif-stream-title-row
+                          .onvif-stream-badge
+                            v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
+                            span Manual RTSP
+                          .onvif-stream-status(:class="onvifManualStatusClass(device)")
+                            v-icon.onvif-chip-icon(size="13") {{ onvifManualStatusIcon(device) }}
+                            span {{ onvifManualStatusText(device) }}
+                        v-row.tw-mt-2.tw-items-start
+                          v-col(cols="12" md="3")
+                            label.form-input-label Camera Name
+                            v-text-field(v-model="onvifManualDrafts[onvifManualKey(device)].name" prepend-inner-icon="mdi-camera-iris" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                              template(v-slot:prepend-inner)
+                                v-icon.text-muted {{ icons['mdiCameraIris'] }}
+                          v-col(cols="12" md="3")
+                            label.form-input-label RTSP Username
+                            v-text-field(v-model="onvifManualDrafts[onvifManualKey(device)].username" prepend-inner-icon="mdi-account" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                              template(v-slot:prepend-inner)
+                                v-icon.text-muted {{ icons['mdiAccount'] }}
+                          v-col(cols="12" md="3")
+                            label.form-input-label RTSP Password
+                            v-text-field(v-model="onvifManualDrafts[onvifManualKey(device)].password" type="password" prepend-inner-icon="mdi-key-variant" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                              template(v-slot:prepend-inner)
+                                v-icon.text-muted {{ icons['mdiKeyVariant'] }}
+                          v-col(cols="12" md="3" v-if="onvifManualDrafts[onvifManualKey(device)].thumbnail || onvifManualDrafts[onvifManualKey(device)].thumbnailError")
+                            label.form-input-label
+                              v-icon.onvif-label-icon(size="14") {{ icons['mdiImageFrame'] }}
+                              span Preview
+                            .onvif-rtsp-preview-box
+                              img.onvif-rtsp-thumbnail(v-if="onvifManualDrafts[onvifManualKey(device)].thumbnail" :src="onvifManualDrafts[onvifManualKey(device)].thumbnail" alt="RTSP preview")
+                              v-icon.text-muted(v-else size="20") {{ icons['mdiImageFrame'] }}
+                        .tw-text-sm.tw-mt-1.onvif-result-line(v-if="onvifManualDrafts[onvifManualKey(device)].rtspMessage" :class="onvifManualDrafts[onvifManualKey(device)].rtspOk ? 'success--text' : 'error--text'")
+                          v-icon.tw-mr-1(small) {{ onvifManualDrafts[onvifManualKey(device)].rtspOk ? icons['mdiCheckCircle'] : icons['mdiCloseCircle'] }}
+                          span {{ onvifManualDrafts[onvifManualKey(device)].rtspMessage }}
+                        .tw-text-xs.text-muted.tw-break-all(v-if="onvifManualDrafts[onvifManualKey(device)].displayUri") {{ onvifManualDrafts[onvifManualKey(device)].displayUri }}
+                        .tw-text-xs.text-muted(v-if="onvifManualDrafts[onvifManualKey(device)].thumbnailError") Preview unavailable: {{ onvifManualDrafts[onvifManualKey(device)].thumbnailError }}
+                      v-list-item-action
+                        v-btn.tw-mb-2(small color="var(--cui-primary)" text @click="testOnvifManualRtsp(device)" :loading="onvifTesting === onvifManualLoadingKey(device)" :disabled="!!onvifAdding")
+                          v-icon(left small) {{ icons['mdiTestTube'] }}
+                          span Test RTSP
+                        v-btn.tw-text-white(small color="success" @click="addOnvifManualCamera(device)" :loading="onvifAdding === onvifManualLoadingKey(device)")
+                          v-icon(left small) {{ icons['mdiPlusCircle'] }}
+                          span Use RTSP
+                v-list.onvif-stream-list(dense color="transparent" v-if="device.streams.length")
+                  v-list-item.onvif-stream-card(v-for="(stream, streamIndex) in device.streams" :key="device.ip + '-' + stream.token" :class="onvifStreamStateClass(device, stream)")
+                    v-list-item-content
+                      .onvif-stream-title-row
+                        .onvif-stream-badge
+                          v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
+                          span Stream {{ streamIndex + 1 }}
+                        .onvif-stream-status(:class="onvifStreamStatusClass(device, stream)")
+                          v-icon.onvif-chip-icon(size="13") {{ onvifStreamStatusIcon(device, stream) }}
+                          span {{ onvifStreamStatusText(device, stream) }}
+                      v-list-item-title.tw-break-all {{ stream.displayUri || stream.uri }}
+                      v-list-item-subtitle {{ stream.token }}
+                      v-row.tw-mt-2.tw-items-start(v-if="onvifDrafts[onvifStreamKey(device, stream)]")
+                        v-col(cols="12" md="3")
+                          label.form-input-label Camera Name
+                          v-text-field(v-model="onvifDrafts[onvifStreamKey(device, stream)].name" prepend-inner-icon="mdi-camera-iris" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                            template(v-slot:prepend-inner)
+                              v-icon.text-muted {{ icons['mdiCameraIris'] }}
+                        v-col(cols="12" md="3")
+                          label.form-input-label RTSP Username
+                          v-text-field(v-model="onvifDrafts[onvifStreamKey(device, stream)].username" prepend-inner-icon="mdi-account" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                            template(v-slot:prepend-inner)
+                              v-icon.text-muted {{ icons['mdiAccount'] }}
+                        v-col(cols="12" md="3")
+                          label.form-input-label RTSP Password
+                          v-text-field(v-model="onvifDrafts[onvifStreamKey(device, stream)].password" type="password" prepend-inner-icon="mdi-key-variant" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
+                            template(v-slot:prepend-inner)
+                              v-icon.text-muted {{ icons['mdiKeyVariant'] }}
+                        v-col(cols="12" md="3" v-if="onvifDrafts[onvifStreamKey(device, stream)].thumbnail || onvifDrafts[onvifStreamKey(device, stream)].thumbnailError")
+                          label.form-input-label
+                            v-icon.onvif-label-icon(size="14") {{ icons['mdiImageFrame'] }}
+                            span Preview
+                          .onvif-rtsp-preview-box
+                            img.onvif-rtsp-thumbnail(v-if="onvifDrafts[onvifStreamKey(device, stream)].thumbnail" :src="onvifDrafts[onvifStreamKey(device, stream)].thumbnail" alt="RTSP preview")
+                            v-icon.text-muted(v-else size="20") {{ icons['mdiImageFrame'] }}
+                      .tw-text-sm.tw-mt-1.onvif-result-line(v-if="onvifDrafts[onvifStreamKey(device, stream)] && onvifDrafts[onvifStreamKey(device, stream)].rtspMessage" :class="onvifDrafts[onvifStreamKey(device, stream)].rtspOk ? 'success--text' : 'error--text'")
+                        v-icon.tw-mr-1(small) {{ onvifDrafts[onvifStreamKey(device, stream)].rtspOk ? icons['mdiCheckCircle'] : icons['mdiCloseCircle'] }}
+                        span {{ onvifDrafts[onvifStreamKey(device, stream)].rtspMessage }}
+                      .tw-text-xs.text-muted.tw-break-all(v-if="onvifDrafts[onvifStreamKey(device, stream)] && onvifDrafts[onvifStreamKey(device, stream)].displayUri") {{ onvifDrafts[onvifStreamKey(device, stream)].displayUri }}
+                      .tw-text-xs.text-muted(v-if="onvifDrafts[onvifStreamKey(device, stream)] && onvifDrafts[onvifStreamKey(device, stream)].thumbnailError") Preview unavailable: {{ onvifDrafts[onvifStreamKey(device, stream)].thumbnailError }}
+                    v-list-item-action
+                      v-btn.tw-mb-2(small color="var(--cui-primary)" text @click="testOnvifStream(device, stream)" :loading="onvifTesting === device.ip + '-' + stream.token" :disabled="!!onvifAdding")
+                        v-icon(left small) {{ icons['mdiTestTube'] }}
+                        span Test RTSP
+                      v-btn.tw-text-white(small color="success" @click="addOnvifCamera(device, stream)" :loading="onvifAdding === device.ip + '-' + stream.token")
+                        v-icon(left small) {{ icons['mdiPlusCircle'] }}
+                        span Use stream
+        v-divider
+        v-card-actions.tw-flex.tw-justify-end
+          v-btn.text-default(text @click='onvifDialog = false') {{ $t('close') }}
+          v-btn(v-if="onvifMode === 'search'" color='var(--cui-primary)' text @click='discoverOnvif' :loading="onvifLoading")
+            v-icon(left small) {{ icons['mdiRefresh'] }}
+            span Scan again
 
     v-divider.tw-my-8
 
@@ -807,23 +1048,44 @@
 
 <script>
 import {
+  mdiAccessPointNetwork,
+  mdiAccount,
   mdiAlert,
   mdiAlphabetical,
+  mdiCameraIris,
+  mdiCheckDecagram,
+  mdiCheckCircle,
   mdiCctv,
+  mdiCctvOff,
   mdiCheckBold,
   mdiCloseThick,
+  mdiCloseCircle,
   mdiDoor,
+  mdiHelpCircleOutline,
+  mdiImageFrame,
   mdiInformationOutline,
+  mdiIpNetwork,
+  mdiKeyVariant,
   mdiLabel,
   mdiLink,
+  mdiLockAlert,
+  mdiLockOpenVariant,
   mdiNumeric,
   mdiPercent,
+  mdiPlusCircle,
+  mdiProgressClock,
+  mdiRefresh,
   mdiSpeedometer,
+  mdiTestTube,
   mdiVideoHighDefinition,
   mdiVideoImage,
+  mdiVideoWireless,
 } from '@mdi/js';
 import {
+  addCamera,
+  discoverOnvifCameras,
   getCameraSnapshot,
+  inspectOnvifCamera,
   removeCamera,
   restartPrebuffering,
   restartVideoanalysis,
@@ -831,6 +1093,7 @@ import {
   stopPrebuffering,
   stopVideoanalysis,
   resetMotion,
+  testOnvifRtsp,
 } from '@/api/cameras.api';
 import { changeConfig, getConfig } from '@/api/config.api';
 import { getSetting, changeSetting } from '@/api/settings.api';
@@ -863,22 +1126,67 @@ export default {
       fabAbove: false,
 
       removeCameraDialog: false,
+      onvifDialog: false,
+      onvifLoading: false,
+      onvifAdding: null,
+      onvifInspecting: null,
+      onvifTesting: null,
+      onvifMode: 'search',
+      onvifDevices: [],
+      onvifDeviceDrafts: {},
+      onvifDrafts: {},
+      onvifManualDrafts: {},
+      onvifPanel: null,
+      onvifUsername: 'admin',
+      onvifPassword: '',
+      ipcTesting: false,
+      ipcCamera: {
+        name: 'IPC_Camera',
+        ip: '',
+        port: 554,
+        username: 'admin',
+        password: '',
+        uri: '',
+        displayUri: '',
+        thumbnail: '',
+        thumbnailError: '',
+        rtspOk: false,
+        rtspMessage: '',
+      },
 
       icons: {
+        mdiAccessPointNetwork,
+        mdiAccount,
         mdiAlert,
         mdiAlphabetical,
+        mdiCameraIris,
+        mdiCheckDecagram,
+        mdiCheckCircle,
         mdiCctv,
+        mdiCctvOff,
         mdiCheckBold,
+        mdiCloseCircle,
         mdiCloseThick,
         mdiDoor,
+        mdiHelpCircleOutline,
+        mdiImageFrame,
         mdiInformationOutline,
+        mdiIpNetwork,
+        mdiKeyVariant,
         mdiLabel,
         mdiLink,
+        mdiLockAlert,
+        mdiLockOpenVariant,
         mdiNumeric,
         mdiPercent,
+        mdiPlusCircle,
+        mdiProgressClock,
+        mdiRefresh,
         mdiSpeedometer,
+        mdiTestTube,
         mdiVideoHighDefinition,
         mdiVideoImage,
+        mdiVideoWireless,
       },
 
       loading: true,
@@ -1014,6 +1322,836 @@ export default {
       }
 
       config[objectName][key] = value;
+    },
+    openCameraDiscovery() {
+      this.onvifMode = 'search';
+      this.discoverOnvif();
+    },
+    async discoverOnvif() {
+      if (this.onvifLoading) {
+        return;
+      }
+
+      this.onvifLoading = true;
+      this.onvifPanel = null;
+
+      try {
+        const response = await discoverOnvifCameras();
+        this.onvifDevices = response.data.result || [];
+        this.initOnvifDrafts();
+        const firstUsableDevice = this.onvifDevices.findIndex((device) => (device.streams || []).length);
+        this.onvifPanel = firstUsableDevice >= 0 ? firstUsableDevice : null;
+      } catch (err) {
+        console.log(err);
+        this.$toast.error(err.response?.data?.message || err.message);
+      }
+
+      this.onvifLoading = false;
+    },
+    onvifDeviceLabel(device) {
+      const labels = [device.manufacturer, device.model, device.serialNumber].filter(Boolean);
+
+      if (!labels.length && device.authRequired) {
+        return 'Authentication required';
+      }
+
+      return labels.length ? labels.join(' - ') : 'ONVIF device';
+    },
+    onvifDeviceKey(device) {
+      return `${device.ip}:${device.port}:${device.path}`;
+    },
+    onvifCameraSourceValues(camera) {
+      const videoConfig = camera?.videoConfig || {};
+
+      return [videoConfig.source, videoConfig.subSource, videoConfig.stillImageSource].filter(Boolean);
+    },
+    cameraNamesForIp(ip) {
+      const targetIp = `${ip || ''}`.trim();
+
+      if (!targetIp) {
+        return [];
+      }
+
+      const escapedIp = targetIp.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const ipPattern = new RegExp(`(^|[^0-9.])${escapedIp}([^0-9.]|$)`);
+
+      return (this.config.cameras || [])
+        .filter((camera) => this.onvifCameraSourceValues(camera).some((source) => ipPattern.test(source)))
+        .map((camera) => camera.name);
+    },
+    onvifDeviceAddedCameras(device) {
+      return this.cameraNamesForIp(device.ip);
+    },
+    onvifDeviceAlreadyAdded(device) {
+      return this.onvifDeviceAddedCameras(device).length > 0;
+    },
+    ipcAddedCameras() {
+      return this.cameraNamesForIp(this.ipcCamera.ip);
+    },
+    ipcDefaultName(ip = this.ipcCamera.ip) {
+      const ipText = `${ip || ''}`.trim();
+      const lastPart = ipText.split('.').filter(Boolean).pop() || 'Camera';
+      const baseName =
+        `IPC_${lastPart}`
+          .replace(/[^a-zA-Z0-9_-]/g, '_')
+          .replace(/_+/g, '_')
+          .replace(/^_|_$/g, '')
+          .slice(0, 32) || 'IPC_Camera';
+      let name = baseName;
+      let index = 2;
+
+      while (this.cameras.some((camera) => camera.name === name)) {
+        name = `${baseName}_${index}`;
+        index++;
+      }
+
+      return name;
+    },
+    onIpcIpInput() {
+      const currentName = `${this.ipcCamera.name || ''}`.trim();
+
+      if (!currentName || currentName === 'IPC_Camera' || /^IPC_[0-9_]+$/.test(currentName)) {
+        this.ipcCamera.name = this.ipcDefaultName();
+      }
+
+      this.resetIpcRtspResult();
+    },
+    resetIpcRtspResult() {
+      this.ipcCamera.uri = '';
+      this.ipcCamera.displayUri = '';
+      this.ipcCamera.thumbnail = '';
+      this.ipcCamera.thumbnailError = '';
+      this.ipcCamera.rtspOk = false;
+      this.ipcCamera.rtspMessage = '';
+    },
+    validateIpcCamera() {
+      const ip = `${this.ipcCamera.ip || ''}`.trim();
+      const port = Number(this.ipcCamera.port);
+      const name = `${this.ipcCamera.name || ''}`.trim();
+
+      if (!name) {
+        this.$toast.error('Camera name is required');
+        return null;
+      }
+
+      if (!ip) {
+        this.$toast.error('IP address is required');
+        return null;
+      }
+
+      if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        this.$toast.error('RTSP port must be between 1 and 65535');
+        return null;
+      }
+
+      return {
+        ip,
+        port,
+        name,
+        username: this.ipcCamera.username || '',
+        password: this.ipcCamera.password || '',
+      };
+    },
+    ipcRtspSeedUri(draft) {
+      return `rtsp://${draft.ip}:${draft.port}/`;
+    },
+    onvifShowManualRtsp(device) {
+      return !device.authRequired && !(device.streams || []).length;
+    },
+    onvifManualKey(device) {
+      return `${this.onvifDeviceKey(device)}:manual`;
+    },
+    onvifManualDraft(device) {
+      return this.onvifManualDrafts[this.onvifManualKey(device)];
+    },
+    onvifManualLoadingKey(device) {
+      return `${device.ip}-manual`;
+    },
+    onvifManualStateClass(device) {
+      const draft = this.onvifManualDraft(device);
+      const loadingKey = this.onvifManualLoadingKey(device);
+
+      return {
+        'onvif-stream-card--testing': this.onvifTesting === loadingKey,
+        'onvif-stream-card--selected': this.onvifAdding === loadingKey,
+        'onvif-stream-card--working': !!draft?.rtspOk,
+        'onvif-stream-card--failed': !!draft?.rtspMessage && !draft?.rtspOk && this.onvifTesting !== loadingKey,
+      };
+    },
+    onvifManualStatusText(device) {
+      const draft = this.onvifManualDraft(device);
+      const loadingKey = this.onvifManualLoadingKey(device);
+
+      if (this.onvifAdding === loadingKey) {
+        return 'Adding';
+      }
+
+      if (this.onvifTesting === loadingKey) {
+        return 'Testing';
+      }
+
+      if (draft?.rtspOk) {
+        return 'Working';
+      }
+
+      if (draft?.rtspMessage) {
+        return 'Failed';
+      }
+
+      return 'Untested';
+    },
+    onvifManualStatusIcon(device) {
+      const draft = this.onvifManualDraft(device);
+      const loadingKey = this.onvifManualLoadingKey(device);
+
+      if (this.onvifAdding === loadingKey) {
+        return this.icons.mdiPlusCircle;
+      }
+
+      if (this.onvifTesting === loadingKey) {
+        return this.icons.mdiProgressClock;
+      }
+
+      if (draft?.rtspOk) {
+        return this.icons.mdiCheckCircle;
+      }
+
+      if (draft?.rtspMessage) {
+        return this.icons.mdiCloseCircle;
+      }
+
+      return this.icons.mdiHelpCircleOutline;
+    },
+    onvifManualStatusClass(device) {
+      const draft = this.onvifManualDraft(device);
+      const loadingKey = this.onvifManualLoadingKey(device);
+
+      return {
+        'onvif-stream-status--active': this.onvifAdding === loadingKey || this.onvifTesting === loadingKey,
+        'onvif-stream-status--working': !!draft?.rtspOk,
+        'onvif-stream-status--failed': !!draft?.rtspMessage && !draft?.rtspOk && this.onvifTesting !== loadingKey,
+      };
+    },
+    onvifStreamKey(device, stream) {
+      return `${device.ip}:${device.port}:${stream.token || stream.uri}`;
+    },
+    onvifStreamDraft(device, stream) {
+      return this.onvifDrafts[this.onvifStreamKey(device, stream)];
+    },
+    onvifStreamLoadingKey(device, stream) {
+      return `${device.ip}-${stream.token}`;
+    },
+    onvifStreamStateClass(device, stream) {
+      const draft = this.onvifStreamDraft(device, stream);
+      const loadingKey = this.onvifStreamLoadingKey(device, stream);
+
+      return {
+        'onvif-stream-card--testing': this.onvifTesting === loadingKey,
+        'onvif-stream-card--selected': this.onvifAdding === loadingKey,
+        'onvif-stream-card--working': !!draft?.rtspOk,
+        'onvif-stream-card--failed': !!draft?.rtspMessage && !draft?.rtspOk && this.onvifTesting !== loadingKey,
+      };
+    },
+    onvifStreamStatusText(device, stream) {
+      const draft = this.onvifStreamDraft(device, stream);
+      const loadingKey = this.onvifStreamLoadingKey(device, stream);
+
+      if (this.onvifAdding === loadingKey) {
+        return 'Adding';
+      }
+
+      if (this.onvifTesting === loadingKey) {
+        return 'Testing';
+      }
+
+      if (draft?.rtspOk) {
+        return 'Working';
+      }
+
+      if (draft?.rtspMessage) {
+        return 'Failed';
+      }
+
+      return 'Untested';
+    },
+    onvifStreamStatusIcon(device, stream) {
+      const draft = this.onvifStreamDraft(device, stream);
+      const loadingKey = this.onvifStreamLoadingKey(device, stream);
+
+      if (this.onvifAdding === loadingKey) {
+        return this.icons.mdiPlusCircle;
+      }
+
+      if (this.onvifTesting === loadingKey) {
+        return this.icons.mdiProgressClock;
+      }
+
+      if (draft?.rtspOk) {
+        return this.icons.mdiCheckCircle;
+      }
+
+      if (draft?.rtspMessage) {
+        return this.icons.mdiCloseCircle;
+      }
+
+      return this.icons.mdiHelpCircleOutline;
+    },
+    onvifStreamStatusClass(device, stream) {
+      const draft = this.onvifStreamDraft(device, stream);
+      const loadingKey = this.onvifStreamLoadingKey(device, stream);
+
+      return {
+        'onvif-stream-status--active': this.onvifAdding === loadingKey || this.onvifTesting === loadingKey,
+        'onvif-stream-status--working': !!draft?.rtspOk,
+        'onvif-stream-status--failed': !!draft?.rtspMessage && !draft?.rtspOk && this.onvifTesting !== loadingKey,
+      };
+    },
+    async inspectOnvifDevice(device, deviceIndex) {
+      const key = this.onvifDeviceKey(device);
+
+      if (this.onvifInspecting) {
+        return;
+      }
+
+      if (!this.onvifDeviceDrafts[key]) {
+        this.$set(this.onvifDeviceDrafts, key, {
+          username: this.onvifUsername,
+          password: this.onvifPassword,
+          ok: false,
+          message: '',
+        });
+      }
+
+      const draft = this.onvifDeviceDrafts[key];
+      this.onvifInspecting = key;
+      this.$set(draft, 'ok', false);
+      this.$set(draft, 'message', 'Checking ONVIF credentials...');
+
+      try {
+        const response = await inspectOnvifCamera({
+          ip: device.ip,
+          port: device.port,
+          path: device.path,
+          username: draft.username,
+          password: draft.password,
+        });
+        const inspectedDevice = response.data.result;
+
+        this.$set(this.onvifDevices, deviceIndex, {
+          ...device,
+          ...inspectedDevice,
+        });
+        this.initOnvifDrafts();
+
+        const nextDraft = this.onvifDeviceDrafts[this.onvifDeviceKey(this.onvifDevices[deviceIndex])];
+        const streamCount = inspectedDevice.streams?.length || 0;
+
+        if (streamCount) {
+          this.$set(nextDraft, 'ok', true);
+          this.$set(nextDraft, 'message', `Loaded ${streamCount} stream${streamCount === 1 ? '' : 's'}`);
+          this.onvifPanel = deviceIndex;
+        } else {
+          this.$set(nextDraft, 'ok', false);
+          this.$set(
+            nextDraft,
+            'message',
+            inspectedDevice.authRequired ? 'Authentication still failed or the camera rejected ONVIF credentials' : 'No ONVIF streams returned'
+          );
+        }
+      } catch (err) {
+        console.log(err);
+        this.$set(draft, 'message', err.response?.data?.message || err.message);
+      }
+
+      this.onvifInspecting = null;
+    },
+    onvifCameraName(device, stream) {
+      const lastOctet = device.ip.split('.').pop();
+      const streamIndex = Array.isArray(device.streams) ? device.streams.indexOf(stream) : -1;
+      const streamSuffix = streamIndex > 0 ? `s${streamIndex + 1}` : '';
+      const label = [device.model || 'Camera', lastOctet, streamSuffix].filter(Boolean).join('_');
+      const baseName = label
+        .replace(/[^a-zA-Z0-9_-]/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_|_$/g, '')
+        .slice(0, 32);
+      const finalBaseName = baseName || `Camera_${lastOctet}`;
+      let name = finalBaseName;
+      let index = 2;
+
+      while (this.cameras.some((camera) => camera.name === name)) {
+        name = `${finalBaseName}_${index}`;
+        index++;
+      }
+
+      return name;
+    },
+    initOnvifDrafts() {
+      const drafts = {};
+      const deviceDrafts = {};
+      const manualDrafts = {};
+      const usedNames = new Set(this.cameras.map((camera) => camera.name));
+
+      this.onvifDevices.forEach((device) => {
+        const deviceKey = this.onvifDeviceKey(device);
+        const previousDeviceDraft = this.onvifDeviceDrafts[deviceKey] || {};
+
+        deviceDrafts[deviceKey] = {
+          username: previousDeviceDraft.username !== undefined ? previousDeviceDraft.username : this.onvifUsername,
+          password: previousDeviceDraft.password !== undefined ? previousDeviceDraft.password : this.onvifPassword,
+          ok: previousDeviceDraft.ok || false,
+          message: previousDeviceDraft.message || '',
+        };
+
+        if (this.onvifShowManualRtsp(device)) {
+          const manualKey = this.onvifManualKey(device);
+          const previousManualDraft = this.onvifManualDrafts[manualKey] || {};
+          const baseName = this.onvifCameraName(device, { token: 'manual' });
+          let name = previousManualDraft.name || baseName;
+          let index = 2;
+
+          while (!previousManualDraft.name && usedNames.has(name)) {
+            name = `${baseName}_${index}`;
+            index++;
+          }
+
+          usedNames.add(name);
+
+          manualDrafts[manualKey] = {
+            name,
+            username:
+              previousManualDraft.username !== undefined ? previousManualDraft.username : deviceDrafts[deviceKey].username,
+            password:
+              previousManualDraft.password !== undefined ? previousManualDraft.password : deviceDrafts[deviceKey].password,
+            uri: previousManualDraft.uri || '',
+            displayUri: previousManualDraft.displayUri || '',
+            thumbnail: previousManualDraft.thumbnail || '',
+            thumbnailError: previousManualDraft.thumbnailError || '',
+            rtspOk: previousManualDraft.rtspOk || false,
+            rtspMessage: previousManualDraft.rtspMessage || '',
+          };
+        }
+
+        (device.streams || []).forEach((stream) => {
+          const key = this.onvifStreamKey(device, stream);
+          const baseName = this.onvifCameraName(device, stream);
+          let name = baseName;
+          let index = 2;
+
+          while (usedNames.has(name)) {
+            name = `${baseName}_${index}`;
+            index++;
+          }
+
+          usedNames.add(name);
+
+          drafts[key] = {
+            name,
+            username: deviceDrafts[deviceKey].username,
+            password: deviceDrafts[deviceKey].password,
+            uri: '',
+            displayUri: '',
+            thumbnail: '',
+            thumbnailError: '',
+            rtspOk: false,
+            rtspMessage: '',
+          };
+        });
+      });
+
+      this.onvifDeviceDrafts = deviceDrafts;
+      this.onvifDrafts = drafts;
+      this.onvifManualDrafts = manualDrafts;
+    },
+    onvifStreamUri(uri, draft) {
+      if (draft?.uri) {
+        return draft.uri;
+      }
+
+      if (!draft?.username && !draft?.password) {
+        return uri;
+      }
+
+      try {
+        const rtspUrl = new URL(uri);
+        const username = encodeURIComponent(draft.username || '');
+        const password = encodeURIComponent(draft.password || '');
+        const auth = draft.username || draft.password ? `${username}:${password}@` : '';
+
+        return `rtsp://${auth}${rtspUrl.host}${rtspUrl.pathname}${rtspUrl.search}`;
+      } catch (error) {
+        return uri;
+      }
+    },
+    onvifStreamSource(stream, draft) {
+      return `-i ${this.onvifStreamUri(stream.uri, draft)}`;
+    },
+    async testOnvifStream(device, stream) {
+      const loadingKey = `${device.ip}-${stream.token}`;
+      const draft = this.onvifDrafts[this.onvifStreamKey(device, stream)];
+
+      if (!draft || (this.onvifTesting && this.onvifTesting !== loadingKey)) {
+        return false;
+      }
+
+      this.onvifTesting = loadingKey;
+      this.$set(draft, 'rtspOk', false);
+      this.$set(draft, 'uri', '');
+      this.$set(draft, 'displayUri', '');
+      this.$set(draft, 'thumbnail', '');
+      this.$set(draft, 'thumbnailError', '');
+      this.$set(draft, 'rtspMessage', 'Testing RTSP candidates...');
+
+      try {
+        const response = await testOnvifRtsp({
+          ip: device.ip,
+          uri: stream.uri,
+          username: draft.username,
+          password: draft.password,
+        });
+        const result = response.data.result;
+
+        if (result.ok) {
+          this.$set(draft, 'rtspOk', true);
+          this.$set(draft, 'uri', result.uri);
+          this.$set(draft, 'displayUri', result.displayUri);
+          this.$set(draft, 'thumbnail', result.thumbnail || '');
+          this.$set(draft, 'thumbnailError', result.thumbnailError || '');
+          this.$set(draft, 'rtspMessage', `Working RTSP found after ${result.tested} test(s)`);
+          this.onvifTesting = null;
+
+          return true;
+        } else {
+          const firstError = result.failures?.[0]?.error ? `: ${result.failures[0].error}` : '';
+
+          this.$set(draft, 'rtspMessage', `No working RTSP found after ${result.tested} test(s)${firstError}`);
+        }
+      } catch (err) {
+        console.log(err);
+        this.$set(draft, 'rtspMessage', err.response?.data?.message || err.message);
+      }
+
+      this.onvifTesting = null;
+
+      return false;
+    },
+    async testOnvifManualRtsp(device) {
+      const loadingKey = this.onvifManualLoadingKey(device);
+      const draft = this.onvifManualDraft(device);
+
+      if (!draft || (this.onvifTesting && this.onvifTesting !== loadingKey)) {
+        return false;
+      }
+
+      this.onvifTesting = loadingKey;
+      this.$set(draft, 'rtspOk', false);
+      this.$set(draft, 'uri', '');
+      this.$set(draft, 'displayUri', '');
+      this.$set(draft, 'thumbnail', '');
+      this.$set(draft, 'thumbnailError', '');
+      this.$set(draft, 'rtspMessage', 'Testing common RTSP paths from this IP...');
+
+      try {
+        const response = await testOnvifRtsp({
+          ip: device.ip,
+          username: draft.username,
+          password: draft.password,
+        });
+        const result = response.data.result;
+
+        if (result.ok) {
+          this.$set(draft, 'rtspOk', true);
+          this.$set(draft, 'uri', result.uri);
+          this.$set(draft, 'displayUri', result.displayUri);
+          this.$set(draft, 'thumbnail', result.thumbnail || '');
+          this.$set(draft, 'thumbnailError', result.thumbnailError || '');
+          this.$set(draft, 'rtspMessage', `Working RTSP found after ${result.tested} test(s)`);
+          this.onvifTesting = null;
+
+          return true;
+        } else {
+          const firstError = result.failures?.[0]?.error ? `: ${result.failures[0].error}` : '';
+
+          this.$set(draft, 'rtspMessage', `No working RTSP found after ${result.tested} test(s)${firstError}`);
+        }
+      } catch (err) {
+        console.log(err);
+        this.$set(draft, 'rtspMessage', err.response?.data?.message || err.message);
+      }
+
+      this.onvifTesting = null;
+
+      return false;
+    },
+    async testIpcRtsp() {
+      if (this.ipcTesting) {
+        return false;
+      }
+
+      const draft = this.validateIpcCamera();
+
+      if (!draft) {
+        return false;
+      }
+
+      this.ipcTesting = true;
+      this.ipcCamera.rtspOk = false;
+      this.ipcCamera.uri = '';
+      this.ipcCamera.displayUri = '';
+      this.ipcCamera.thumbnail = '';
+      this.ipcCamera.thumbnailError = '';
+      this.ipcCamera.rtspMessage = 'Testing common RTSP paths from this IP and port...';
+
+      try {
+        const response = await testOnvifRtsp({
+          ip: draft.ip,
+          uri: this.ipcRtspSeedUri(draft),
+          username: draft.username,
+          password: draft.password,
+        });
+        const result = response.data.result;
+
+        if (result.ok) {
+          this.ipcCamera.rtspOk = true;
+          this.ipcCamera.uri = result.uri;
+          this.ipcCamera.displayUri = result.displayUri;
+          this.ipcCamera.thumbnail = result.thumbnail || '';
+          this.ipcCamera.thumbnailError = result.thumbnailError || '';
+          this.ipcCamera.rtspMessage = `Working RTSP found after ${result.tested} test(s)`;
+          this.ipcTesting = false;
+
+          return true;
+        } else {
+          const firstError = result.failures?.[0]?.error ? `: ${result.failures[0].error}` : '';
+
+          this.ipcCamera.rtspMessage = `No working RTSP found after ${result.tested} test(s)${firstError}`;
+        }
+      } catch (err) {
+        console.log(err);
+        this.ipcCamera.rtspMessage = err.response?.data?.message || err.message;
+      }
+
+      this.ipcTesting = false;
+
+      return false;
+    },
+    async addIpcCamera() {
+      if (this.onvifAdding) {
+        return;
+      }
+
+      const draft = this.validateIpcCamera();
+
+      if (!draft) {
+        return;
+      }
+
+      if (this.cameras.some((camera) => camera.name === draft.name)) {
+        this.$toast.error('Camera name already exists');
+        return;
+      }
+
+      this.onvifAdding = 'ipc';
+
+      if (!this.ipcCamera.rtspOk) {
+        const ok = await this.testIpcRtsp();
+
+        if (!ok) {
+          this.$toast.error('No working RTSP URL found');
+          this.onvifAdding = null;
+          return;
+        }
+      }
+
+      const source = `-i ${this.ipcCamera.uri}`;
+      const camera = {
+        name: draft.name,
+        manufacturer: 'IPC',
+        model: `IP Camera ${draft.ip}`,
+        serialNumber: draft.ip,
+        motionTimeout: 15,
+        recordOnMovement: false,
+        prebuffering: false,
+        videoConfig: {
+          source,
+          subSource: source,
+          stillImageSource: source,
+          rtspTransport: 'tcp',
+          stimeout: 10,
+          audio: false,
+          debug: false,
+        },
+        mqtt: {},
+        smtp: {
+          email: draft.name,
+        },
+        videoanalysis: {
+          active: false,
+        },
+      };
+
+      try {
+        await addCamera(camera);
+        await this.cameraAdded(camera);
+
+        this.onvifDialog = false;
+        this.$toast.success(`${this.$t('successfully_added_camera')}`);
+      } catch (err) {
+        console.log(err);
+        this.$toast.error(err.response?.data?.message || err.message);
+      }
+
+      this.onvifAdding = null;
+    },
+    async addOnvifManualCamera(device) {
+      const loadingKey = this.onvifManualLoadingKey(device);
+
+      if (this.onvifAdding) {
+        return;
+      }
+
+      this.onvifAdding = loadingKey;
+
+      const draft = this.onvifManualDraft(device) || {};
+      const name = `${draft.name || this.onvifCameraName(device, { token: 'manual' })}`.trim();
+
+      if (!name) {
+        this.$toast.error('Camera name is required');
+        this.onvifAdding = null;
+        return;
+      }
+
+      if (this.cameras.some((camera) => camera.name === name)) {
+        this.$toast.error('Camera name already exists');
+        this.onvifAdding = null;
+        return;
+      }
+
+      if (!draft.rtspOk) {
+        const ok = await this.testOnvifManualRtsp(device);
+
+        if (!ok) {
+          this.$toast.error('No working RTSP URL found');
+          this.onvifAdding = null;
+          return;
+        }
+      }
+
+      const source = `-i ${draft.uri}`;
+      const camera = {
+        name,
+        manufacturer: device.manufacturer,
+        model: device.model,
+        serialNumber: device.serialNumber,
+        motionTimeout: 15,
+        recordOnMovement: false,
+        prebuffering: false,
+        videoConfig: {
+          source,
+          subSource: source,
+          stillImageSource: source,
+          rtspTransport: 'tcp',
+          stimeout: 10,
+          audio: false,
+          debug: false,
+        },
+        mqtt: {},
+        smtp: {
+          email: name,
+        },
+        videoanalysis: {
+          active: false,
+        },
+      };
+
+      try {
+        await addCamera(camera);
+        await this.cameraAdded(camera);
+
+        this.onvifDialog = false;
+        this.$toast.success(`${this.$t('successfully_added_camera')}`);
+      } catch (err) {
+        console.log(err);
+        this.$toast.error(err.response?.data?.message || err.message);
+      }
+
+      this.onvifAdding = null;
+    },
+    async addOnvifCamera(device, stream) {
+      const loadingKey = `${device.ip}-${stream.token}`;
+
+      if (this.onvifAdding) {
+        return;
+      }
+
+      this.onvifAdding = loadingKey;
+
+      const draft = this.onvifDrafts[this.onvifStreamKey(device, stream)] || {};
+      const name = `${draft.name || this.onvifCameraName(device, stream)}`.trim();
+
+      if (!name) {
+        this.$toast.error('Camera name is required');
+        this.onvifAdding = null;
+        return;
+      }
+
+      if (this.cameras.some((camera) => camera.name === name)) {
+        this.$toast.error('Camera name already exists');
+        this.onvifAdding = null;
+        return;
+      }
+
+      if (!draft.rtspOk) {
+        const ok = await this.testOnvifStream(device, stream);
+
+        if (!ok) {
+          this.$toast.error('No working RTSP URL found');
+          this.onvifAdding = null;
+          return;
+        }
+      }
+
+      const source = this.onvifStreamSource(stream, draft);
+      const subStreamItem = device.streams.find((item) => item.token !== stream.token && item.uri);
+      const subStream = subStreamItem ? this.onvifStreamSource(subStreamItem, draft) : source;
+      const camera = {
+        name,
+        manufacturer: device.manufacturer,
+        model: device.model,
+        serialNumber: device.serialNumber,
+        motionTimeout: 15,
+        recordOnMovement: false,
+        prebuffering: false,
+        videoConfig: {
+          source,
+          subSource: subStream,
+          stillImageSource: source,
+          rtspTransport: 'tcp',
+          stimeout: 10,
+          audio: false,
+          debug: false,
+        },
+        mqtt: {},
+        smtp: {
+          email: name,
+        },
+        videoanalysis: {
+          active: false,
+        },
+      };
+
+      try {
+        await addCamera(camera);
+        await this.cameraAdded(camera);
+
+        this.onvifDialog = false;
+        this.$toast.success(`${this.$t('successfully_added_camera')}`);
+      } catch (err) {
+        console.log(err);
+        this.$toast.error(err.response?.data?.message || err.message);
+      }
+
+      this.onvifAdding = null;
     },
     async cameraAdded(camera) {
       try {
@@ -1361,6 +2499,32 @@ export default {
   bottom: 95px !important;
 }
 
+.onvif-rtsp-preview-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  border: 1px solid rgba(var(--cui-text-default-rgb), 0.18);
+  border-radius: 4px;
+  background: rgba(var(--cui-text-default-rgb), 0.08);
+  overflow: hidden;
+  font-size: 0.625rem;
+  line-height: 1.1;
+  text-align: center;
+}
+
+.onvif-rtsp-thumbnail {
+  display: block;
+  width: 56px !important;
+  min-width: 56px !important;
+  max-width: 56px !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  max-height: 56px !important;
+  object-fit: cover;
+}
+
 div >>> .v-chip .v-chip__content {
   color: #fff !important;
 }
@@ -1393,6 +2557,323 @@ div >>> .theme--light.v-expansion-panels .v-expansion-panel-header .v-expansion-
 
 div >>> .v-expansion-panel:not(:first-child)::after {
   border: none;
+}
+
+.onvif-dialog-card {
+  background: #f3f6f8 !important;
+}
+
+.onvif-dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #ffffff;
+  border-bottom: 1px solid rgba(var(--cui-text-default-rgb), 0.1);
+}
+
+.onvif-title-icon,
+.onvif-device-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 7px;
+  color: #2b7ab9;
+  background: #e7f2ff;
+}
+
+.onvif-dialog-body {
+  background: #f3f6f8;
+}
+
+.onvif-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.onvif-mode-toggle {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 5px;
+  border: 1px solid rgba(var(--cui-text-default-rgb), 0.12);
+  border-radius: 7px;
+  background: #ffffff;
+}
+
+.onvif-mode-button {
+  min-height: 40px;
+  border-radius: 5px;
+  color: #5a6673 !important;
+  background: #eef2f6 !important;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.onvif-mode-button--active {
+  color: #ffffff !important;
+  background: #2b7ab9 !important;
+  box-shadow: 0 6px 14px rgba(43, 122, 185, 0.22);
+}
+
+.onvif-ipc-box {
+  padding: 14px;
+  border: 1px solid rgba(43, 122, 185, 0.26);
+  border-left: 4px solid #2b7ab9;
+  border-radius: 6px;
+  background: #f4f9ff;
+}
+
+.onvif-ipc-box--added {
+  border-color: rgba(123, 97, 209, 0.42);
+  border-left-color: #7b61d1;
+  background: #f6f1ff;
+}
+
+.onvif-ipc-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.onvif-device-list {
+  gap: 10px;
+}
+
+div >>> .onvif-device-panel {
+  background: #ffffff !important;
+  border: 1px solid rgba(var(--cui-text-default-rgb), 0.14);
+  border-left: 4px solid #a9b4c0;
+  border-radius: 6px !important;
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+div >>> .onvif-device-panel--active {
+  background: #eef6ff !important;
+  border-color: rgba(43, 122, 185, 0.42);
+  border-left-color: #2b7ab9;
+  box-shadow: 0 8px 20px rgba(35, 65, 95, 0.14);
+}
+
+div >>> .onvif-device-panel--active .v-expansion-panel-header {
+  background: #e7f2ff;
+}
+
+div >>> .onvif-device-panel--auth {
+  background: #fffaf0 !important;
+  border-color: rgba(204, 142, 28, 0.4);
+  border-left-color: #cc8e1c;
+}
+
+div >>> .onvif-device-panel--auth .v-expansion-panel-header {
+  background: #fff5dc;
+}
+
+div >>> .onvif-device-panel--added {
+  background: #f6f1ff !important;
+  border-color: rgba(123, 97, 209, 0.42);
+  border-left-color: #7b61d1;
+}
+
+div >>> .onvif-device-panel--added .v-expansion-panel-header {
+  background: #efe7ff;
+}
+
+.onvif-device-header-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.onvif-device-address,
+.onvif-device-meta-row,
+.onvif-device-pill,
+.onvif-result-line {
+  display: flex;
+  align-items: center;
+}
+
+.onvif-device-address {
+  gap: 5px;
+}
+
+.onvif-inline-icon,
+.onvif-label-icon {
+  color: rgba(var(--cui-text-default-rgb), 0.62) !important;
+}
+
+.onvif-label-icon {
+  margin-right: 4px;
+  vertical-align: -2px;
+}
+
+.onvif-device-meta-row {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.onvif-device-pill {
+  min-height: 20px;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1;
+  color: #2d5d86;
+  background: #dceeff;
+}
+
+.onvif-device-pill--warning {
+  color: #8a5d00;
+  background: #fff0cc;
+}
+
+.onvif-device-pill--added {
+  color: #5840a8;
+  background: #e5dcff;
+}
+
+.onvif-device-pill--manual {
+  color: #2d5d86;
+  background: #e4f1ff;
+}
+
+.onvif-auth-box {
+  padding: 12px;
+  border: 1px solid rgba(204, 142, 28, 0.28);
+  border-radius: 6px;
+  background: #fffaf0;
+}
+
+.onvif-auth-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #8a5d00;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.onvif-auth-icon {
+  color: #cc8e1c !important;
+}
+
+.onvif-manual-box {
+  padding: 12px;
+  border: 1px solid rgba(43, 122, 185, 0.24);
+  border-radius: 6px;
+  background: #f4f9ff;
+}
+
+.onvif-manual-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #2d5d86;
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.onvif-manual-icon {
+  color: #2b7ab9 !important;
+}
+
+.onvif-stream-list {
+  padding: 0;
+}
+
+div >>> .onvif-stream-card {
+  align-items: flex-start;
+  background: #f8fafc;
+  border: 1px solid rgba(var(--cui-text-default-rgb), 0.13);
+  border-left: 4px solid #a9b4c0;
+  border-radius: 6px;
+  margin: 10px 0;
+  min-height: 0;
+  padding: 10px 12px !important;
+}
+
+div >>> .onvif-stream-card--testing {
+  background: #fff8e8;
+  border-color: rgba(204, 142, 28, 0.44);
+  border-left-color: #cc8e1c;
+}
+
+div >>> .onvif-stream-card--working {
+  background: #effaf2;
+  border-color: rgba(46, 174, 95, 0.5);
+  border-left-color: #2eae5f;
+}
+
+div >>> .onvif-stream-card--failed {
+  background: #fff1f1;
+  border-color: rgba(203, 67, 67, 0.45);
+  border-left-color: #cb4343;
+}
+
+div >>> .onvif-stream-card--selected {
+  box-shadow: inset 0 0 0 2px rgba(46, 174, 95, 0.28);
+}
+
+div >>> .onvif-manual-card {
+  background: #ffffff;
+}
+
+.onvif-stream-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.onvif-stream-badge,
+.onvif-stream-status {
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.onvif-stream-badge {
+  background: #22313f;
+  color: #ffffff;
+}
+
+.onvif-stream-status {
+  background: #e1e7ee;
+  color: #52606d;
+}
+
+.onvif-stream-status--active {
+  background: #fff0cc;
+  color: #8a5d00;
+}
+
+.onvif-stream-status--working {
+  background: #d9f4df;
+  color: #1f7d42;
+}
+
+.onvif-stream-status--failed {
+  background: #ffe0e0;
+  color: #a33131;
+}
+
+.onvif-chip-icon {
+  flex: 0 0 auto;
+  margin-right: 4px;
+  color: currentColor !important;
 }
 
 /*div >>> .v-expansion-panels > *:last-child {

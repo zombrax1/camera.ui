@@ -2,11 +2,89 @@
 'use-strict';
 
 import * as CamerasModel from './cameras.model.js';
+import * as OnvifDiscovery from './onvif.discovery.js';
+import * as RtspProbe from './rtsp.probe.js';
 
 import CameraController from '../../../controller/camera/camera.controller.js';
 import MotionController from '../../../controller/motion/motion.controller.js';
 
 const setTimeoutAsync = (ms) => new Promise((res) => setTimeout(res, ms));
+
+export const discoverOnvif = async (req, res) => {
+  try {
+    const ports = req.query.ports
+      ? req.query.ports
+          .split(',')
+          .map((port) => Number.parseInt(port, 10))
+          .filter((port) => port > 0 && port < 65536)
+      : undefined;
+
+    const devices = await OnvifDiscovery.discover(ports);
+
+    res.status(200).send({
+      result: devices,
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+export const testOnvifRtsp = async (req, res) => {
+  try {
+    const { ip, uri, username = '', password = '' } = req.body || {};
+
+    if (!ip && !uri) {
+      return res.status(400).send({
+        statusCode: 400,
+        message: 'IP or RTSP URI is required',
+      });
+    }
+
+    const result = await RtspProbe.test({ ip, uri, username, password });
+
+    res.status(200).send({
+      result,
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
+
+export const inspectOnvifDevice = async (req, res) => {
+  try {
+    const { ip, port, path, username = '', password = '' } = req.body || {};
+
+    if (!ip || !port || !path) {
+      return res.status(400).send({
+        statusCode: 400,
+        message: 'ONVIF IP, port, and path are required',
+      });
+    }
+
+    const result = await OnvifDiscovery.inspectDevice({
+      ip,
+      port,
+      path,
+      username,
+      password,
+    });
+
+    res.status(200).send({
+      result,
+    });
+  } catch (error) {
+    res.status(500).send({
+      statusCode: 500,
+      message: error.message,
+    });
+  }
+};
 
 export const insert = async (req, res) => {
   try {

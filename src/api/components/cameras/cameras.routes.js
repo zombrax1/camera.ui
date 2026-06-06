@@ -123,6 +123,76 @@ export const routesConfig = (app) => {
 
   /**
    * @swagger
+   * /api/cameras/onvif/discover:
+   *   get:
+   *     tags: [Cameras]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Discover ONVIF cameras on local networks
+   *     responses:
+   *       200:
+   *         description: Successfull
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.get('/api/cameras/onvif/discover', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
+    CamerasController.discoverOnvif,
+  ]);
+
+  /**
+   * @swagger
+   * /api/cameras/onvif/inspect:
+   *   post:
+   *     tags: [Cameras]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Inspect one ONVIF camera with optional credentials
+   *     responses:
+   *       200:
+   *         description: Successfull
+   *       400:
+   *         description: Bad request
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.post('/api/cameras/onvif/inspect', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
+    CamerasController.inspectOnvifDevice,
+  ]);
+
+  /**
+   * @swagger
+   * /api/cameras/onvif/rtsp-test:
+   *   post:
+   *     tags: [Cameras]
+   *     security:
+   *       - bearerAuth: []
+   *     summary: Test discovered ONVIF RTSP candidates with ffmpeg
+   *     responses:
+   *       200:
+   *         description: Successfull
+   *       400:
+   *         description: Bad request
+   *       401:
+   *         description: Unauthorized
+   *       500:
+   *         description: Internal server error
+   */
+  app.post('/api/cameras/onvif/rtsp-test', [
+    ValidationMiddleware.validJWTNeeded,
+    PermissionMiddleware.minimumPermissionLevelRequired('cameras:edit'),
+    CamerasController.testOnvifRtsp,
+  ]);
+
+  /**
+   * @swagger
    * /api/cameras/{name}:
    *   get:
    *     tags: [Cameras]

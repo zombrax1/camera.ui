@@ -357,13 +357,22 @@ export const generateVideoConfig = (videoConfig) => {
 };
 
 export const checkDeprecatedFFmpegArguments = (ffmpegVersion, ffmpegArguments) => {
-  if (!ffmpegVersion || !compareVersions.validate(ffmpegVersion)) {
+  const versionMatch = `${ffmpegVersion || ''}`.match(/\d+(?:\.\d+){0,2}/);
+  const parsedFFmpegVersion = versionMatch ? versionMatch[0].split('.') : [];
+
+  while (parsedFFmpegVersion.length > 0 && parsedFFmpegVersion.length < 3) {
+    parsedFFmpegVersion.push('0');
+  }
+
+  const normalizedFFmpegVersion = parsedFFmpegVersion.join('.');
+
+  if (!compareVersions.validate(normalizedFFmpegVersion)) {
     return ffmpegArguments;
   }
 
   let ffmpegArgumentsArray = !Array.isArray(ffmpegArguments) ? ffmpegArguments.split(' ') : [...ffmpegArguments];
 
-  if (compareVersions.compare(ffmpegVersion, '5.0.0', '>=')) {
+  if (compareVersions.compare(normalizedFFmpegVersion, '5.0.0', '>=')) {
     ffmpegArgumentsArray = ffmpegArgumentsArray.map((argument) => {
       if (argument === '-stimeout') {
         argument = '-timeout';
