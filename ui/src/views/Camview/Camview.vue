@@ -130,7 +130,7 @@ export default {
 
       const count = this.items().length.toString();
 
-      if (this.camviewLayout[count]?.length > 0 && this.camviewLayout[count]?.length === this.items().length) {
+      if (this.isValidLayout(this.camviewLayout[count], this.items().length)) {
         this.restoreFromStorage(count);
       } else {
         this.getLayout(true);
@@ -179,65 +179,61 @@ export default {
         this.fullscreen = false;
       }
     },
-    getLayout(update) {
-      let nodes = [];
+    buildLayout(items) {
+      const count = items.length;
 
-      let index_ = 0;
-      let x = 0;
-      let y = 0;
-      let w = this.items().length < 7 ? 6 : 4;
-      let h =
-        12 /
-        Math.round(
-          (this.items().length % 2 === 0 ? this.items().length : this.items().length + 1) /
-            (this.items().length < 7 ? 2 : 3)
-        );
+      if (!count) {
+        return [];
+      }
 
-      for (const [index, element] of this.items().entries()) {
-        const beforeElement = this.items()[index ? index - 1 : index];
-        let lastX = Number.parseInt(beforeElement.getAttribute('gs-x'));
+      const columns = count < 7 ? 2 : count < 10 ? 3 : count < 17 ? 4 : 6;
+      const rows = Math.ceil(count / columns);
+      const w = 12 / columns;
+      const h = Math.max(1, Math.floor(12 / rows));
 
-        x = this.items().length < 7 ? (index && !lastX ? 6 : 0) : index && !lastX ? 4 : lastX == 4 ? 8 : 0;
-
-        if (this.items().length < 7 && index % 2 == 0) {
-          y = index_ * h;
-          index_++;
+      return [...items].map((element, index) => {
+        if (count === 1) {
+          return {
+            index,
+            el: element,
+            x: 0,
+            y: 0,
+            w: 12,
+            h: 12,
+          };
         }
 
-        if (this.items().length >= 7 && index % 3 == 0) {
-          y = index_ * h;
-          index_++;
+        if (count === 2) {
+          return {
+            index,
+            el: element,
+            x: 0,
+            y: index * 6,
+            w: 12,
+            h: 6,
+          };
         }
 
-        if (this.items().length === 1) {
-          x = 0;
-          y = 0;
-          w = 12;
-          h = 12;
-        }
-
-        if (this.items().length === 2) {
-          x = 0;
-          y = index * 6;
-          w = 12;
-          h = 6;
-        }
-
-        nodes.push({
-          index: index,
+        return {
+          index,
           el: element,
-          x: x,
-          y: y,
-          w: w,
-          h: h,
-        });
+          x: (index % columns) * w,
+          y: Math.floor(index / columns) * h,
+          w,
+          h,
+        };
+      });
+    },
+    getLayout(update) {
+      const nodes = this.buildLayout(this.items());
 
-        if (update) {
-          this.grid.update(element, {
-            x: x,
-            y: y,
-            w: w,
-            h: h,
+      if (update) {
+        for (const node of nodes) {
+          this.grid.update(node.el, {
+            x: node.x,
+            y: node.y,
+            w: node.w,
+            h: node.h,
           });
         }
       }
@@ -281,49 +277,28 @@ export default {
 
       this.fullscreen = true;
     },
+    isValidLayout(layout, count) {
+      return (
+        Array.isArray(layout) &&
+        layout.length === count &&
+        layout.every((pos) => {
+          const x = Number(pos.x);
+          const y = Number(pos.y);
+          const w = Number(pos.w);
+          const h = Number(pos.h);
+
+          return Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0;
+        })
+      );
+    },
     refreshLayout(nodes) {
-      let index_ = 0;
-      let x = 0;
-      let y = 0;
-      let w = nodes.length < 7 ? 6 : 4;
-      let h = 12 / Math.round((nodes.length % 2 === 0 ? nodes.length : nodes.length + 1) / (nodes.length < 7 ? 2 : 3));
-
-      for (const [index, node] of nodes.entries()) {
-        const beforeElement = nodes[index ? index - 1 : index].el;
-        let lastX = Number.parseInt(beforeElement.getAttribute('gs-x'));
-
-        x = nodes.length < 7 ? (index && !lastX ? 6 : 0) : index && !lastX ? 4 : lastX == 4 ? 8 : 0;
-
-        if (nodes.length < 7 && index % 2 == 0) {
-          y = index_ * h;
-          index_++;
-        }
-
-        if (nodes.length >= 7 && index % 3 == 0) {
-          y = index_ * h;
-          index_++;
-        }
-
-        if (nodes.length === 1) {
-          x = 0;
-          y = 0;
-          w = 12;
-          h = 12;
-        }
-
-        if (nodes.length === 2) {
-          x = 0;
-          y = index * 6;
-          w = 12;
-          h = 6;
-        }
-
+      for (const node of this.buildLayout(nodes.map((node) => node.el))) {
         const nodePosition = {
           id: node.el.getAttribute('gs-id'),
-          x: x,
-          y: y,
-          w: w,
-          h: h,
+          x: node.x,
+          y: node.y,
+          w: node.w,
+          h: node.h,
         };
 
         this.grid.addWidget(node.el, nodePosition);
@@ -390,7 +365,7 @@ export default {
 
         const count = nodes.length.toString();
 
-        if (this.camviewLayout[count]?.length > 0 && this.camviewLayout[count]?.length === nodes.length) {
+        if (this.isValidLayout(this.camviewLayout[count], nodes.length)) {
           const items = nodes.map((node) => node.el);
           this.restoreFromStorage(count, items, true);
         } else {
