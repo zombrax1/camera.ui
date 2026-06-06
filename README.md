@@ -1,9 +1,7 @@
-> [!IMPORTANT]
-> 🚀 New Version in Development 🚀
+> [!NOTE]
+> This fork includes easier ONVIF and IPC camera discovery.
 >
-> A new version of camera.ui is currently under active development. An initial alpha/beta release and previews are coming soon. Stay tuned for exciting updates!
->
-> Details: https://github.com/seydx/camera.ui/issues/448
+> Install this repository from source to use those features.
 
 <p align="center">
     <img src="https://github.com/SeydX/camera.ui/blob/master/images/logo.png">
@@ -11,13 +9,11 @@
 
 # camera.ui
 
-[![npm](https://img.shields.io/npm/v/camera.ui.svg?style=flat-square)](https://www.npmjs.com/package/camera.ui)
-[![npm](https://img.shields.io/npm/v/camera.ui/beta.svg?style=flat-square)](https://www.npmjs.com/package/camera.ui)
-[![npm](https://img.shields.io/npm/dt/camera.ui.svg?style=flat-square)](https://www.npmjs.com/package/camera.ui)
-[![GitHub last commit](https://img.shields.io/github/last-commit/SeydX/camera.ui.svg?style=flat-square)](https://github.com/SeydX/camera.ui)
+[![GitHub release](https://img.shields.io/github/v/release/zombrax1/camera.ui?style=flat-square)](https://github.com/zombrax1/camera.ui/releases)
+[![GitHub last commit](https://img.shields.io/github/last-commit/zombrax1/camera.ui.svg?style=flat-square)](https://github.com/zombrax1/camera.ui)
 [![Donate](https://img.shields.io/badge/Donate-PayPal-blue.svg?style=flat-square&maxAge=2592000)](https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=NP4T3KASWQLD8)
 
-**camera.ui** is a NVR like PWA to control your RTSP capable cameras with:
+**camera.ui** is an NVR-like PWA to control your RTSP capable cameras with:
 
 - **Live Streams** on Web
 - **Camview**: A resizable, drag & drop camera overview
@@ -31,9 +27,9 @@
 - **User Interface**: Beautiful and with love designed interface with 8 different color themes, darkmode and more
 - **HomeKit**: Easily expose the cameras to Apple Home with HSV support
 
-and much mure...
+and much more...
 
-## Added Camera Discovery Features
+## What This Fork Adds
 
 This fork adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP camera networks:
 
@@ -44,26 +40,142 @@ This fork adds an NVR-style camera onboarding flow for mixed ONVIF and RTSP/IP c
 - **Preview Thumbnail**: Show a small RTSP thumbnail when the tested stream can return a frame.
 - **Existing IP Highlighting**: Mark discovered or manually entered IP addresses that already exist in the camera list.
 
-**Supported Languages:** 
+**Supported Languages:**
 
 :de: | :gb: | :netherlands: | :fr: | :thailand: | :es:
 
-**Demo:** https://streamable.com/3yce42 
+**Demo:** https://streamable.com/3yce42
 
-## Installation
+## Requirements
 
-This fork now requires **Node.js 22 or newer**. The backend dependency set was updated around current Node LTS/runtime packages and will not install cleanly on the original Node 14 baseline.
+Install these before installing this fork:
 
-camera.ui can be installed as follows:
+- **Node.js 22 or newer** with `npm`
+- **Git**
+- **PowerShell** on Windows, or a normal terminal on Linux/macOS
+- **Network access to your cameras** from the machine running camera.ui
+- **Port `8081` free** on the machine running camera.ui
 
+For camera discovery, make sure the computer and cameras are on the same LAN. Some cameras also require ONVIF to be enabled in the camera's own settings page.
+
+## Install This Fork
+
+The public `camera.ui` npm package belongs to the upstream project. To use the ONVIF/IPC discovery features in this fork, install from this repository.
+
+### 1. Download The Source
+
+```powershell
+git clone https://github.com/zombrax1/camera.ui.git
+cd camera.ui
 ```
-sudo npm install -g camera.ui@latest
+
+### 2. Install Dependencies
+
+```powershell
+npm install
+npm install --prefix ui
 ```
+
+### 3. Build The Web Interface
+
+On Windows PowerShell:
+
+```powershell
+$env:NODE_OPTIONS = "--openssl-legacy-provider"
+npm run build --prefix ui
+```
+
+On Linux/macOS:
+
+```bash
+export NODE_OPTIONS=--openssl-legacy-provider
+npm run build --prefix ui
+```
+
+### 4. Start camera.ui
+
+On Windows PowerShell:
+
+```powershell
+node .\bin\camera.ui.js
+```
+
+On Linux/macOS:
+
+```bash
+node ./bin/camera.ui.js
+```
+
+Then open:
+
+```text
+http://localhost:8081
+```
+
+Leave the terminal window open while camera.ui is running. Press `Ctrl+C` in that terminal to stop it.
+
+## First Login
+
+- Username: `master`
+- Password: `master`
+
+After the first login, change the account password from the account settings page.
+
+## Add Your First Camera
+
+Open `Settings -> Cameras -> Find / Add Camera`.
+
+Use **ONVIF Search** when the camera supports ONVIF. Enter the username and password if needed. Many cameras use username `admin` with an empty password, but some require their own ONVIF account.
+
+Use **IPC Camera** when you know the camera IP and RTSP port. Enter the camera name, IP address, RTSP port, username, and password. If the camera has no password, leave the password empty. Click **Test RTSP** first, then add the camera when the stream test succeeds.
+
+Discovered cameras that are already in your list are highlighted so you do not add the same IP twice. A small thumbnail appears when the RTSP test can read a frame from the camera.
+
+## Update An Existing Install
+
+On Windows PowerShell:
+
+```powershell
+git pull
+npm install
+npm install --prefix ui
+$env:NODE_OPTIONS = "--openssl-legacy-provider"
+npm run build --prefix ui
+node .\bin\camera.ui.js
+```
+
+On Linux/macOS:
+
+```bash
+git pull
+npm install
+npm install --prefix ui
+export NODE_OPTIONS=--openssl-legacy-provider
+npm run build --prefix ui
+node ./bin/camera.ui.js
+```
+
+## Troubleshooting Install Problems
+
+- **Build error `ERR_OSSL_EVP_UNSUPPORTED`**: Run the build with `NODE_OPTIONS=--openssl-legacy-provider` as shown above.
+- **`http://localhost:8081` does not open**: Check that camera.ui is still running and that port `8081` is not already used by another app.
+- **Camera is detected but shows offline**: The IP may be correct while the RTSP path, RTSP port, username, or password is wrong. Use **IPC Camera** and **Test RTSP** to try the correct stream settings.
+- **ONVIF search does not find a camera**: Enable ONVIF in the camera settings, confirm the camera is on the same LAN, then try common ONVIF ports such as `8888`, `5000`, `8080`, and `80`.
 
 ## Documentation
 
 - [camera.ui](#cameraui)
-  - [Installation](#installation)
+  - [What This Fork Adds](#what-this-fork-adds)
+  - [Requirements](#requirements)
+  - [Install This Fork](#install-this-fork)
+    - [1. Download The Source](#1-download-the-source)
+    - [2. Install Dependencies](#2-install-dependencies)
+    - [3. Build The Web Interface](#3-build-the-web-interface)
+    - [4. Start camera.ui](#4-start-cameraui)
+  - [First Login](#first-login)
+  - [Add Your First Camera](#add-your-first-camera)
+  - [Update An Existing Install](#update-an-existing-install)
+  - [Troubleshooting Install Problems](#troubleshooting-install-problems)
   - [Documentation](#documentation)
   - [Configuration](#configuration)
   - [Defaults](#defaults)
