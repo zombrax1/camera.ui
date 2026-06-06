@@ -88,6 +88,72 @@ const getSourceVersions = async () => {
   return [ConfigService.version];
 };
 
+const runReadCommand = (cmd, options = {}) => {
+  return new Promise((resolve, reject) => {
+    exec(
+      cmd,
+      {
+        maxBuffer: 10 * 1024 * 1024,
+        windowsHide: true,
+        ...options,
+      },
+      (error, stdout, stderr) => {
+        if (stderr) {
+          log.warn(stderr.trim(), 'System', 'system');
+        }
+
+        if (error) {
+          return reject(error);
+        }
+
+        resolve(stdout.trim());
+      }
+    );
+  });
+};
+
+const getSourceStatus = async () => {
+  const basePath = process.env.CUI_BASE_PATH || process.cwd();
+  const gitPath = path.resolve(basePath, '.git');
+
+  if (!(await fs.pathExists(gitPath))) {
+    return {
+      branch: SOURCE_REPOSITORY.branch,
+      currentCommit: null,
+      latestCommit: null,
+      updateAvailable: false,
+    };
+  }
+
+  try {
+    const [currentCommit, latestResponse] = await Promise.all([
+      runReadCommand('git rev-parse HEAD', { cwd: basePath }),
+      axios(`${SOURCE_REPOSITORY_API}/commits/${SOURCE_REPOSITORY.branch}`, {
+        headers: {
+          accept: 'application/vnd.github+json',
+        },
+      }),
+    ]);
+    const latestCommit = latestResponse.data?.sha || null;
+
+    return {
+      branch: SOURCE_REPOSITORY.branch,
+      currentCommit,
+      latestCommit,
+      updateAvailable: Boolean(currentCommit && latestCommit && currentCommit !== latestCommit),
+    };
+  } catch (error) {
+    log.warn(`Failed to check source update status: ${error.message}`, 'System', 'system');
+
+    return {
+      branch: SOURCE_REPOSITORY.branch,
+      currentCommit: null,
+      latestCommit: null,
+      updateAvailable: false,
+    };
+  }
+};
+
 const runUpdateCommand = (cmd, options = {}) => {
   return new Promise((resolve, reject) => {
     log.info(`Updating: ${cmd}`, 'System', 'system');
@@ -238,7 +304,7 @@ export const downloadLog = async (req, res) => {
 
 export const fetchNpm = async (req, res) => {
   try {
-    const versions = await getSourceVersions();
+    const [versions, source] = await Promise.all([getSourceVersions(), getSourceStatus()]);
     const versionMap = versions.reduce((data, version) => {
       data[version] = {
         name: SOURCE_REPOSITORY.name,
@@ -257,6 +323,7 @@ export const fetchNpm = async (req, res) => {
         type: 'git',
         url: SOURCE_REPOSITORY.url,
       },
+      source,
       versions: versionMap,
     });
   } catch (error) {

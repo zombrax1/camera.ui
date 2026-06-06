@@ -326,6 +326,7 @@ export default {
     env: '',
     installedVersion: null,
     latestVersion: null,
+    sourceUpdateAvailable: false,
     serviceMode: false,
     updateAvailable: false,
     npmPackageName: 'camera.ui',
@@ -474,7 +475,9 @@ export default {
 
       this.npmPackageName = pkg.data.name;
       this.latestVersion = relatedVersions[0].value || relatedVersions[0];
-      this.updateAvailable = compareVersions.compare(this.latestVersion, this.installedVersion, '>');
+      this.sourceUpdateAvailable = Boolean(pkg.data.source?.updateAvailable);
+      this.updateAvailable =
+        compareVersions.compare(this.latestVersion, this.installedVersion, '>') || this.sourceUpdateAvailable;
 
       if (this.updateAvailable) {
         this.currentVersion = this.latestVersion;
