@@ -19,10 +19,11 @@ export const discoverOnvif = async (req, res) => {
           .filter((port) => port > 0 && port < 65536)
       : undefined;
 
-    const devices = await OnvifDiscovery.discover(ports);
+    const discovery = await OnvifDiscovery.discover(ports);
 
     res.status(200).send({
-      result: devices,
+      result: discovery.devices,
+      scan: discovery.scan,
     });
   } catch (error) {
     const statusCode = error.statusCode || 500;

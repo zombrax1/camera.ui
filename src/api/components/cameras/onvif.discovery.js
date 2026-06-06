@@ -241,12 +241,17 @@ const requestOnvif = async (host, port, path, body, credentials = {}) => {
   return sendOnvif(host, port, path, authenticatedBody, authorization);
 };
 
-const getLocalHosts = () => {
+const getDhcpLanScanTargets = () => {
   const hosts = new Set();
+  const networks = [];
 
-  for (const interfaces of Object.values(os.networkInterfaces())) {
+  for (const [name, interfaces] of Object.entries(os.networkInterfaces())) {
     for (const network of interfaces || []) {
       if (network.family !== 'IPv4' || network.internal) {
+        continue;
+      }
+
+      if (!isPrivateCameraIp(network.address)) {
         continue;
       }
 
@@ -256,18 +261,36 @@ const getLocalHosts = () => {
       const mask = scanPrefix === 0 ? 0 : (0xffffffff << (32 - scanPrefix)) >>> 0;
       const start = (address & mask) >>> 0;
       const end = (start | (~mask >>> 0)) >>> 0;
+      const scanEnd = Math.min(end - 1, start + 254);
+      const networkHosts = [];
 
-      for (let current = start + 1; current < end && current <= start + 254; current++) {
+      for (let current = start + 1; current <= scanEnd; current++) {
         const ip = fromInteger(current);
 
         if (ip !== network.address) {
           hosts.add(ip);
+          networkHosts.push(ip);
         }
+      }
+
+      if (networkHosts.length) {
+        networks.push({
+          name,
+          address: network.address,
+          cidr: network.cidr || `${network.address}/${prefix}`,
+          scanCidr: `${fromInteger(start)}/${scanPrefix}`,
+          startIp: networkHosts[0],
+          endIp: networkHosts[networkHosts.length - 1],
+          hostCount: networkHosts.length,
+        });
       }
     }
   }
 
-  return [...hosts];
+  return {
+    hosts: [...hosts],
+    networks,
+  };
 };
 
 const getStreamUriBody = (profileToken) =>
@@ -364,7 +387,8 @@ export const inspectDevice = async ({ ip, port, path, username = '', password = 
 
 export const discover = async (ports = DEFAULT_PORTS) => {
   const scanPorts = normalizePorts(ports);
-  const hosts = getLocalHosts();
+  const targets = getDhcpLanScanTargets();
+  const hosts = targets.hosts;
   const jobs = [];
   const endpoints = [];
   let index = 0;
@@ -398,5 +422,13 @@ export const discover = async (ports = DEFAULT_PORTS) => {
       .map((endpoint) => inspectEndpoint(endpoint))
   );
 
-  return devices;
+  return {
+    devices,
+    scan: {
+      mode: 'dhcp-lan',
+      ports: scanPorts,
+      hostCount: hosts.length,
+      networks: targets.networks,
+    },
+  };
 };

@@ -10,6 +10,15 @@
 
       v-card.light-shadow.card-border.dropdown-content(max-width="360px")
         .tw-flex.tw-justify-between.tw-items-center.tw-py-3.tw-px-5.dropdown-title
+          v-card-subtitle.tw-p-0.tw-m-0.tw-text-sm.tw-font-medium Layout presets
+        v-divider
+        v-card-text.tw-py-3.tw-px-5
+          .layout-preset-grid
+            v-btn.layout-preset-button(v-for="preset in layoutPresets" :key="preset.value" :class="{ 'layout-preset-button--active': layoutPreset === preset.value }" small depressed @click="applyLayoutPreset(preset.value)")
+              v-icon(left x-small) {{ icons[preset.icon] }}
+              span {{ preset.label }}
+        v-divider
+        .tw-flex.tw-justify-between.tw-items-center.tw-py-3.tw-px-5.dropdown-title
           v-card-subtitle.tw-p-0.tw-m-0.tw-text-sm.tw-font-medium {{ $t('favourites') }}
         v-divider
         v-card-text.tw-py-3.tw-px-5.text-center
@@ -50,7 +59,7 @@ import 'gridstack/dist/gridstack.min.css';
 import 'gridstack/dist/gridstack-extra.min.css';
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/jq/gridstack-dd-jqueryui';
-import { mdiCog } from '@mdi/js';
+import { mdiAutoFix, mdiCog, mdiViewGrid } from '@mdi/js';
 
 import { getCameras, getCameraSettings } from '@/api/cameras.api';
 import { getNotifications } from '@/api/notifications.api';
@@ -65,6 +74,15 @@ const DEFAULT_GRID_COLUMNS = 12;
 const DEFAULT_GRID_ROWS = 12;
 const DENSE_GRID_COLUMNS = 8;
 const DENSE_GRID_ROWS = 16;
+const LAYOUT_PRESET_STORAGE_KEY = 'camview-layout-preset';
+const LAYOUT_PRESETS = [
+  { value: 'auto', label: 'Auto', icon: 'mdiAutoFix' },
+  { value: '4', label: '4', icon: 'mdiViewGrid' },
+  { value: '9', label: '9', icon: 'mdiViewGrid' },
+  { value: '16', label: '16', icon: 'mdiViewGrid' },
+  { value: '25', label: '25', icon: 'mdiViewGrid' },
+  { value: '32', label: '32', icon: 'mdiViewGrid' },
+];
 
 export default {
   name: 'Camview',
@@ -85,8 +103,12 @@ export default {
     allCameras: [],
     cameras: [],
     icons: {
+      mdiAutoFix,
       mdiCog,
+      mdiViewGrid,
     },
+    layoutPreset: localStorage.getItem(LAYOUT_PRESET_STORAGE_KEY) || 'auto',
+    layoutPresets: LAYOUT_PRESETS,
     loading: false,
     showCardsMenu: false,
   }),
@@ -135,10 +157,11 @@ export default {
         cellHeight: this.cellHeightFor(gridConfig.gridRows),
       });
 
-      const count = this.items().length.toString();
+      const count = this.items().length;
+      const layoutKey = this.layoutKey(count);
 
-      if (this.isValidLayout(this.camviewLayout[count], this.items().length)) {
-        this.restoreFromStorage(count);
+      if (this.isValidLayout(this.camviewLayout[layoutKey], count)) {
+        this.restoreFromStorage(layoutKey);
       } else {
         this.getLayout(true);
       }
@@ -193,14 +216,14 @@ export default {
         return [];
       }
 
-      const { gridColumns, gridRows, tileColumns } = this.layoutConfig(count);
+      const { gridColumns, gridRows, tileColumns, tileRows } = this.layoutConfig(count);
       const columns = tileColumns;
-      const rows = Math.ceil(count / columns);
+      const rows = tileRows || Math.ceil(count / columns);
       const w = gridColumns / columns;
       const h = Math.max(1, Math.floor(gridRows / rows));
 
       return [...items].map((element, index) => {
-        if (count === 1) {
+        if (this.layoutPreset === 'auto' && count === 1) {
           return {
             index,
             el: element,
@@ -211,7 +234,7 @@ export default {
           };
         }
 
-        if (count === 2) {
+        if (this.layoutPreset === 'auto' && count === 2) {
           return {
             index,
             el: element,
@@ -247,6 +270,16 @@ export default {
       }
 
       return nodes;
+    },
+    applyLayoutPreset(preset) {
+      this.layoutPreset = preset;
+      localStorage.setItem(LAYOUT_PRESET_STORAGE_KEY, preset);
+
+      const nodes = this.getLayout();
+      this.grid.removeAll();
+      this.applyGridConfig(nodes.length);
+      this.refreshLayout(nodes);
+      this.saveToStorage();
     },
     applyGridConfig(count) {
       const gridConfig = this.layoutConfig(count);
@@ -323,7 +356,16 @@ export default {
         })
       );
     },
+    layoutKey(count) {
+      return this.layoutPreset === 'auto' ? count.toString() : `${count}:${this.layoutPreset}`;
+    },
     layoutConfig(count) {
+      const preset = this.presetConfig(this.layoutPreset);
+
+      if (preset) {
+        return preset;
+      }
+
       if (count > 16) {
         return {
           gridColumns: DENSE_GRID_COLUMNS,
@@ -337,6 +379,23 @@ export default {
         gridRows: DEFAULT_GRID_ROWS,
         tileColumns: count < 7 ? 2 : count < 10 ? 3 : 4,
       };
+    },
+    presetConfig(preset) {
+      const target = Number.parseInt(preset, 10);
+
+      if (!target) {
+        return null;
+      }
+
+      const presets = {
+        4: { gridColumns: 2, gridRows: 2, tileColumns: 2, tileRows: 2 },
+        9: { gridColumns: 3, gridRows: 3, tileColumns: 3, tileRows: 3 },
+        16: { gridColumns: 4, gridRows: 4, tileColumns: 4, tileRows: 4 },
+        25: { gridColumns: 5, gridRows: 5, tileColumns: 5, tileRows: 5 },
+        32: { gridColumns: 8, gridRows: 4, tileColumns: 8, tileRows: 4 },
+      };
+
+      return presets[target] || null;
     },
     refreshLayout(nodes) {
       for (const node of this.buildLayout(nodes.map((node) => node.el))) {
@@ -377,9 +436,9 @@ export default {
     },
     saveToStorage() {
       const itemLayout = {};
-      itemLayout[this.items().length] = this.grid.save();
+      itemLayout[this.layoutKey(this.items().length)] = this.grid.save();
 
-      for (const element of itemLayout[this.items().length]) {
+      for (const element of itemLayout[this.layoutKey(this.items().length)]) {
         delete element.content;
       }
 
@@ -411,11 +470,12 @@ export default {
         this.grid.removeAll();
         this.applyGridConfig(nodes.length);
 
-        const count = nodes.length.toString();
+        const count = nodes.length;
+        const layoutKey = this.layoutKey(count);
 
-        if (this.isValidLayout(this.camviewLayout[count], nodes.length)) {
+        if (this.isValidLayout(this.camviewLayout[layoutKey], count)) {
           const items = nodes.map((node) => node.el);
-          this.restoreFromStorage(count, items, true);
+          this.restoreFromStorage(layoutKey, items, true);
         } else {
           this.refreshLayout(nodes);
         }
@@ -466,5 +526,25 @@ export default {
   top: 1rem !important;
   right: calc(env(safe-area-inset-left, 0px) + 1rem) !important;
   z-index: 1;
+}
+
+.layout-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.layout-preset-button {
+  min-width: 0 !important;
+  border-radius: 6px;
+  color: #d7dde4 !important;
+  background: rgba(20, 28, 36, 0.72) !important;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.layout-preset-button--active {
+  color: #ffffff !important;
+  background: var(--cui-primary) !important;
 }
 </style>

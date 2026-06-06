@@ -54,6 +54,19 @@
                 v-text-field(v-model="onvifPassword" type="password" prepend-inner-icon="mdi-key-variant" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
                   template(v-slot:prepend-inner)
                     v-icon.text-muted {{ icons['mdiKeyVariant'] }}
+            .onvif-scan-box.tw-mt-3(v-if="onvifLoading || onvifScan")
+              .onvif-manual-heading
+                v-icon.onvif-manual-icon(size="18") {{ icons['mdiRouterNetwork'] }}
+                span DHCP/LAN network scan
+              .onvif-device-meta-row
+                .onvif-device-pill
+                  v-icon.onvif-chip-icon(size="13") {{ icons['mdiAccessPointNetwork'] }}
+                  span Hosts: {{ onvifScan ? onvifScan.hostCount : '...' }}
+                .onvif-device-pill
+                  v-icon.onvif-chip-icon(size="13") {{ icons['mdiNumeric'] }}
+                  span Ports: {{ onvifScanPorts() }}
+              .tw-text-xs.text-muted.tw-mt-2(v-for="network in onvifScanNetworks()" :key="network.name + network.scanCidr")
+                span {{ onvifScanNetworkLabel(network) }}
             .tw-mt-5.tw-text-center.text-muted.onvif-empty-state(v-if="!onvifLoading && !onvifDevices.length")
               v-icon.tw-mr-1(small) {{ icons['mdiAccessPointNetwork'] }}
               span No ONVIF cameras found
@@ -1075,6 +1088,7 @@ import {
   mdiPlusCircle,
   mdiProgressClock,
   mdiRefresh,
+  mdiRouterNetwork,
   mdiSpeedometer,
   mdiTestTube,
   mdiVideoHighDefinition,
@@ -1133,6 +1147,7 @@ export default {
       onvifTesting: null,
       onvifMode: 'search',
       onvifDevices: [],
+      onvifScan: null,
       onvifDeviceDrafts: {},
       onvifDrafts: {},
       onvifManualDrafts: {},
@@ -1182,6 +1197,7 @@ export default {
         mdiPlusCircle,
         mdiProgressClock,
         mdiRefresh,
+        mdiRouterNetwork,
         mdiSpeedometer,
         mdiTestTube,
         mdiVideoHighDefinition,
@@ -1334,10 +1350,12 @@ export default {
 
       this.onvifLoading = true;
       this.onvifPanel = null;
+      this.onvifScan = null;
 
       try {
         const response = await discoverOnvifCameras();
         this.onvifDevices = response.data.result || [];
+        this.onvifScan = response.data.scan || null;
         this.initOnvifDrafts();
         const firstUsableDevice = this.onvifDevices.findIndex((device) => (device.streams || []).length);
         this.onvifPanel = firstUsableDevice >= 0 ? firstUsableDevice : null;
@@ -1347,6 +1365,15 @@ export default {
       }
 
       this.onvifLoading = false;
+    },
+    onvifScanNetworkLabel(network) {
+      return `${network.name}: ${network.address} -> ${network.scanCidr} (${network.startIp} - ${network.endIp})`;
+    },
+    onvifScanNetworks() {
+      return this.onvifScan?.networks || [];
+    },
+    onvifScanPorts() {
+      return (this.onvifScan?.ports || [8888, 8899, 5000, 8080, 80]).join(', ');
     },
     onvifDeviceLabel(device) {
       const labels = [device.manufacturer, device.model, device.serialNumber].filter(Boolean);
@@ -1655,7 +1682,9 @@ export default {
           this.$set(
             nextDraft,
             'message',
-            inspectedDevice.authRequired ? 'Authentication still failed or the camera rejected ONVIF credentials' : 'No ONVIF streams returned'
+            inspectedDevice.authRequired
+              ? 'Authentication still failed or the camera rejected ONVIF credentials'
+              : 'No ONVIF streams returned'
           );
         }
       } catch (err) {
@@ -1720,9 +1749,13 @@ export default {
           manualDrafts[manualKey] = {
             name,
             username:
-              previousManualDraft.username !== undefined ? previousManualDraft.username : deviceDrafts[deviceKey].username,
+              previousManualDraft.username !== undefined
+                ? previousManualDraft.username
+                : deviceDrafts[deviceKey].username,
             password:
-              previousManualDraft.password !== undefined ? previousManualDraft.password : deviceDrafts[deviceKey].password,
+              previousManualDraft.password !== undefined
+                ? previousManualDraft.password
+                : deviceDrafts[deviceKey].password,
             uri: previousManualDraft.uri || '',
             displayUri: previousManualDraft.displayUri || '',
             thumbnail: previousManualDraft.thumbnail || '',
@@ -2769,6 +2802,14 @@ div >>> .onvif-device-panel--added .v-expansion-panel-header {
   border: 1px solid rgba(43, 122, 185, 0.24);
   border-radius: 6px;
   background: #f4f9ff;
+}
+
+.onvif-scan-box {
+  padding: 12px;
+  border: 1px solid rgba(43, 122, 185, 0.22);
+  border-left: 4px solid #2b7ab9;
+  border-radius: 6px;
+  background: #ffffff;
 }
 
 .onvif-manual-heading {
