@@ -47,6 +47,7 @@
 import LightBox from 'vue-it-bigger';
 import 'vue-it-bigger/dist/vue-it-bigger.min.css';
 import 'gridstack/dist/gridstack.min.css';
+import 'gridstack/dist/gridstack-extra.min.css';
 import { GridStack } from 'gridstack';
 import 'gridstack/dist/jq/gridstack-dd-jqueryui';
 import { mdiCog } from '@mdi/js';
@@ -60,6 +61,10 @@ import VideoCard from '@/components/camera-card.vue';
 import socket from '@/mixins/socket';
 
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const DEFAULT_GRID_COLUMNS = 12;
+const DEFAULT_GRID_ROWS = 12;
+const DENSE_GRID_COLUMNS = 8;
+const DENSE_GRID_ROWS = 16;
 
 export default {
   name: 'Camview',
@@ -113,19 +118,21 @@ export default {
 
       await timeout(100);
 
+      const gridConfig = this.layoutConfig(this.items().length);
+
       this.grid = GridStack.init({
         alwaysShowResizeHandle: this.isMobile(),
         disableOneColumnMode: true,
         animate: true,
         margin: 2,
-        row: 12,
+        row: gridConfig.gridRows,
         float: true,
-        column: 12,
+        column: gridConfig.gridColumns,
         resizable: {
           autoHide: !this.isMobile(),
           handles: 'all',
         },
-        cellHeight: this.windowHeight() / 12,
+        cellHeight: this.cellHeightFor(gridConfig.gridRows),
       });
 
       const count = this.items().length.toString();
@@ -186,10 +193,11 @@ export default {
         return [];
       }
 
-      const columns = count < 7 ? 2 : count < 10 ? 3 : count < 17 ? 4 : 6;
+      const { gridColumns, gridRows, tileColumns } = this.layoutConfig(count);
+      const columns = tileColumns;
       const rows = Math.ceil(count / columns);
-      const w = 12 / columns;
-      const h = Math.max(1, Math.floor(12 / rows));
+      const w = gridColumns / columns;
+      const h = Math.max(1, Math.floor(gridRows / rows));
 
       return [...items].map((element, index) => {
         if (count === 1) {
@@ -198,8 +206,8 @@ export default {
             el: element,
             x: 0,
             y: 0,
-            w: 12,
-            h: 12,
+            w: gridColumns,
+            h: gridRows,
           };
         }
 
@@ -208,9 +216,9 @@ export default {
             index,
             el: element,
             x: 0,
-            y: index * 6,
-            w: 12,
-            h: 6,
+            y: index * (gridRows / 2),
+            w: gridColumns,
+            h: gridRows / 2,
           };
         }
 
@@ -239,6 +247,19 @@ export default {
       }
 
       return nodes;
+    },
+    applyGridConfig(count) {
+      const gridConfig = this.layoutConfig(count);
+
+      if (this.grid) {
+        this.grid.column(gridConfig.gridColumns, 'none');
+        this.grid.cellHeight(this.cellHeightFor(gridConfig.gridRows), true);
+      }
+
+      return gridConfig;
+    },
+    cellHeightFor(rows) {
+      return this.windowHeight() / rows;
     },
     isMobile() {
       return (
@@ -278,6 +299,8 @@ export default {
       this.fullscreen = true;
     },
     isValidLayout(layout, count) {
+      const gridConfig = this.layoutConfig(count);
+
       return (
         Array.isArray(layout) &&
         layout.length === count &&
@@ -287,9 +310,33 @@ export default {
           const w = Number(pos.w);
           const h = Number(pos.h);
 
-          return Number.isInteger(x) && Number.isInteger(y) && Number.isInteger(w) && Number.isInteger(h) && w > 0 && h > 0;
+          return (
+            Number.isInteger(x) &&
+            Number.isInteger(y) &&
+            Number.isInteger(w) &&
+            Number.isInteger(h) &&
+            w > 0 &&
+            h > 0 &&
+            x + w <= gridConfig.gridColumns &&
+            y + h <= gridConfig.gridRows
+          );
         })
       );
+    },
+    layoutConfig(count) {
+      if (count > 16) {
+        return {
+          gridColumns: DENSE_GRID_COLUMNS,
+          gridRows: DENSE_GRID_ROWS,
+          tileColumns: DENSE_GRID_COLUMNS,
+        };
+      }
+
+      return {
+        gridColumns: DEFAULT_GRID_COLUMNS,
+        gridRows: DEFAULT_GRID_ROWS,
+        tileColumns: count < 7 ? 2 : count < 10 ? 3 : 4,
+      };
     },
     refreshLayout(nodes) {
       for (const node of this.buildLayout(nodes.map((node) => node.el))) {
@@ -306,7 +353,7 @@ export default {
     },
     resizeHandler() {
       if (this.grid) {
-        this.grid.cellHeight(this.windowHeight() / 12, true);
+        this.grid.cellHeight(this.cellHeightFor(this.layoutConfig(this.items().length).gridRows), true);
       }
     },
     restoreFromStorage(count, items, add) {
@@ -362,6 +409,7 @@ export default {
 
         const nodes = this.getLayout();
         this.grid.removeAll();
+        this.applyGridConfig(nodes.length);
 
         const count = nodes.length.toString();
 
