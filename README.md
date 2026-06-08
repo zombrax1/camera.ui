@@ -62,7 +62,21 @@ On Windows, clone this repository into a normal user folder such as `C:\camera.u
 
 For camera discovery, make sure the computer and cameras are on the same LAN. Some cameras also require ONVIF to be enabled in the camera's own settings page.
 
-## Install This Repository
+## Install On A Windows PC
+
+For a normal camera PC, use the Windows installer. Do not install Node.js, do not run `npm`, and do not build from source on that PC.
+
+1. Open this repository on GitHub.
+2. Go to **Actions -> Build Windows Installer**.
+3. Open the latest successful run.
+4. Download the **camera-ui-windows-installer** artifact.
+5. Extract the downloaded artifact zip.
+6. Run `camera.ui Setup <version>.exe`.
+7. Launch **camera.ui** from the desktop shortcut or Start Menu.
+
+The installer includes the desktop runtime, camera.ui server, built web interface, and ffmpeg. The target PC only needs Windows, network access to the cameras, and port `8081` free.
+
+## Install This Repository From Source
 
 The public `camera.ui` npm package belongs to the upstream project. To use the ONVIF/IPC discovery features here, install from this repository.
 

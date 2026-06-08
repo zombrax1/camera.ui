@@ -1,0 +1,49 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - ".github/workflows/build-windows-installer.yml"
+      - "electron/**"
+      - "scripts/**"
+      - "src/**"
+      - "ui/**"
+      - "package.json"
+      - "package-lock.json"
+      - "README.md"
+
+jobs:
+  windows-installer:
+    name: Build Windows installer
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install server and packager dependencies
+        run: npm install
+
+      - name: Install UI dependencies
+        run: npm install --legacy-peer-deps --prefix ui
+
+      - name: Build installer
+        run: npm run dist:win
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: camera-ui-windows-installer
+          path: |
+            dist/camera.ui Setup *.exe
+            dist/latest.yml
+            dist/*.blockmap
+          if-no-files-found: error
