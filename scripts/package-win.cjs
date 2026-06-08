@@ -18,7 +18,14 @@ fs.mkdirSync(electronCachePath, { recursive: true });
 fs.mkdirSync(builderCachePath, { recursive: true });
 fs.mkdirSync(localAppDataPath, { recursive: true });
 
-const result = spawnSync(process.execPath, [builderCommand, '--win', ...process.argv.slice(2)], {
+const builderArgs = ['--win', ...process.argv.slice(2)];
+const hasPublishArg = builderArgs.some((argument) => argument === '--publish' || argument.startsWith('--publish='));
+
+if (!hasPublishArg) {
+  builderArgs.push('--publish', 'never');
+}
+
+const result = spawnSync(process.execPath, [builderCommand, ...builderArgs], {
   cwd: rootPath,
   env: {
     ...process.env,
