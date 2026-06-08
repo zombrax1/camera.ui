@@ -10,15 +10,15 @@ const localAppDataPath = path.resolve(cachePath, 'local-app-data');
 const builderCommand = path.resolve(
   rootPath,
   'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'electron-builder.cmd' : 'electron-builder'
+  'electron-builder',
+  'cli.js'
 );
 
 fs.mkdirSync(electronCachePath, { recursive: true });
 fs.mkdirSync(builderCachePath, { recursive: true });
 fs.mkdirSync(localAppDataPath, { recursive: true });
 
-const result = spawnSync(builderCommand, ['--win', ...process.argv.slice(2)], {
+const result = spawnSync(process.execPath, [builderCommand, '--win', ...process.argv.slice(2)], {
   cwd: rootPath,
   env: {
     ...process.env,
@@ -27,7 +27,6 @@ const result = spawnSync(builderCommand, ['--win', ...process.argv.slice(2)], {
     electron_config_cache: electronCachePath,
     LOCALAPPDATA: localAppDataPath,
   },
-  shell: process.platform === 'win32',
   stdio: 'inherit',
 });
 

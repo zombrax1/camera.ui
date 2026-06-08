@@ -5,14 +5,17 @@ const existingNodeOptions = process.env.NODE_OPTIONS || '';
 const nodeOptions = existingNodeOptions.includes(legacyOpenSslOption)
   ? existingNodeOptions
   : `${existingNodeOptions} ${legacyOpenSslOption}`.trim();
+const npmCliPath = process.env.npm_execpath;
 
 const isWindows = process.platform === 'win32';
-const result = spawnSync('npm', ['run', 'build', '--prefix', 'ui'], {
+const command = npmCliPath ? process.execPath : 'npm';
+const args = npmCliPath ? [npmCliPath, 'run', 'build', '--prefix', 'ui'] : ['run', 'build', '--prefix', 'ui'];
+const result = spawnSync(command, args, {
   env: {
     ...process.env,
     NODE_OPTIONS: nodeOptions,
   },
-  shell: isWindows,
+  shell: isWindows && !npmCliPath,
   stdio: 'inherit',
 });
 

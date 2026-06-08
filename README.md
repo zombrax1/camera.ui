@@ -76,6 +76,8 @@ For a normal camera PC, use the Windows installer. Do not install Node.js, do no
 
 The installer includes the desktop runtime, camera.ui server, built web interface, and ffmpeg. The target PC only needs Windows, network access to the cameras, and port `8081` free.
 
+The installer is large because it bundles the desktop runtime and ffmpeg so the target PC does not need Node.js or command-line build tools. GitHub does not accept normal git source files over 100 MB, so the `.exe` is published as a GitHub Actions artifact instead of being committed into the repository.
+
 ## Install This Repository From Source
 
 The public `camera.ui` npm package belongs to the upstream project. To use the ONVIF/IPC discovery features here, install from this repository.
