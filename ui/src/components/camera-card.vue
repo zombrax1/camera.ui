@@ -124,6 +124,10 @@ export default {
     notifications: Boolean,
     refreshSnapshot: Boolean,
     snapshot: Boolean,
+    snapshotRefreshTimer: {
+      type: Number,
+      default: 0,
+    },
     status: Boolean,
     stream: Boolean,
     streamMode: {
@@ -193,11 +197,11 @@ export default {
 
     this.timeout = this.camera.settings.streamTimeout || 60;
 
-    if (this.stream) {
-      if (this.streamStartDelay > 0) {
-        await timeout(this.streamStartDelay);
-      }
+    if ((this.stream || this.snapshot || this.refreshSnapshot) && this.streamStartDelay > 0) {
+      await timeout(this.streamStartDelay);
+    }
 
+    if (this.stream) {
       this.startStream();
     } else if (this.snapshot || this.refreshSnapshot) {
       this.startSnapshot();
@@ -393,9 +397,11 @@ export default {
           this.snapshotTimeout = null;
         }
 
+        const refreshTimer = this.snapshotRefreshTimer || this.camera.refreshTimer;
+
         this.snapshotTimeout = setTimeout(async () => {
           this.startSnapshot();
-        }, this.camera.refreshTimer * 1000);
+        }, refreshTimer * 1000);
       }
     },
     async startStream() {

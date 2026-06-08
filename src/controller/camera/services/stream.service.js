@@ -12,10 +12,10 @@ import Database from '../../../api/database.js';
 import Socket from '../../../api/socket.js';
 
 const { log } = LoggerService;
-const DENSE_STREAM_MAX_WIDTH = 640;
-const DENSE_STREAM_MAX_HEIGHT = 360;
+const DENSE_STREAM_MAX_WIDTH = 480;
+const DENSE_STREAM_MAX_HEIGHT = 270;
 const DENSE_STREAM_MAX_FPS = 20;
-const DENSE_STREAM_MAX_BITRATE = 256;
+const DENSE_STREAM_MAX_BITRATE = 192;
 const STREAM_RESTART_WINDOW = 60 * 1000;
 const STREAM_RESTART_LIMIT = 3;
 
