@@ -78,6 +78,7 @@ export default class Socket {
   };
 
   static io;
+  static streamOptions = new Map();
 
   static create = (server) => new Socket(server);
 
@@ -127,6 +128,10 @@ export default class Socket {
 
       socket.on('join_stream', (data) => {
         if (data.feed) {
+          Socket.streamOptions.set(data.feed, {
+            dense: Boolean(data.dense),
+            mode: data.mode || 'default',
+          });
           socket.join(`stream/${data.feed}`);
           log.debug(`${socket.decoded_token.username} (${socket.conn.remoteAddress}) joined stream: ${data.feed}`);
         }
@@ -141,6 +146,10 @@ export default class Socket {
 
       socket.on('rejoin_stream', (data) => {
         if (data.feed) {
+          Socket.streamOptions.set(data.feed, {
+            dense: Boolean(data.dense),
+            mode: data.mode || 'default',
+          });
           socket.leave(`stream/${data.feed}`);
           socket.join(`stream/${data.feed}`);
 
@@ -150,6 +159,10 @@ export default class Socket {
 
       socket.on('refresh_stream', (data) => {
         if (data.feed) {
+          Socket.streamOptions.set(data.feed, {
+            dense: Boolean(data.dense),
+            mode: data.mode || 'default',
+          });
           log.debug(
             `${socket.decoded_token.username} (${socket.conn.remoteAddress}) requested to restart stream: ${data.feed}`
           );
@@ -277,6 +290,7 @@ export default class Socket {
 
             streamTimeout = setTimeout(() => {
               this.#handleStream(cameraName, 'stop');
+              Socket.streamOptions.delete(cameraName);
               this.#streamTimeouts.delete(cameraName);
             }, 15000);
 
@@ -296,6 +310,7 @@ export default class Socket {
 
           streamTimeout = setTimeout(() => {
             this.#handleStream(cameraName, 'stop');
+            Socket.streamOptions.delete(cameraName);
             this.#streamTimeouts.delete(cameraName);
           }, 15000);
 
@@ -323,6 +338,14 @@ export default class Socket {
           break;
       }
     }
+  }
+
+  static getStreamOptions(cameraName) {
+    return Socket.streamOptions.get(cameraName) || {};
+  }
+
+  static hasStreamClients(cameraName) {
+    return (Socket.io?.sockets.adapter.rooms.get(`stream/${cameraName}`)?.size || 0) > 0;
   }
 
   static async watchSystem() {

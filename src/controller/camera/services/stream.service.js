@@ -12,6 +12,31 @@ import Database from '../../../api/database.js';
 import Socket from '../../../api/socket.js';
 
 const { log } = LoggerService;
+const DENSE_STREAM_MAX_WIDTH = 640;
+const DENSE_STREAM_MAX_HEIGHT = 360;
+const DENSE_STREAM_MAX_FPS = 10;
+const DENSE_STREAM_MAX_BITRATE = 180;
+
+const fitDenseResolution = (resolution) => {
+  const match = String(resolution || '').match(/^(\d+)x(\d+)$/);
+
+  if (!match) {
+    return `${DENSE_STREAM_MAX_WIDTH}x${DENSE_STREAM_MAX_HEIGHT}`;
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  const scale = Math.min(1, DENSE_STREAM_MAX_WIDTH / width, DENSE_STREAM_MAX_HEIGHT / height);
+
+  if (scale >= 1) {
+    return `${width}x${height}`;
+  }
+
+  const fittedWidth = Math.max(2, Math.floor((width * scale) / 2) * 2);
+  const fittedHeight = Math.max(2, Math.floor((height * scale) / 2) * 2);
+
+  return `${fittedWidth}x${fittedHeight}`;
+};
 
 export default class StreamService {
   #camera;
@@ -52,8 +77,13 @@ export default class StreamService {
     const cameraSetting = Settings.find((camera) => camera && camera.name === this.cameraName);
 
     const videoConfig = cameraUtils.generateVideoConfig(this.#camera.videoConfig);
+    const streamOptions = Socket.getStreamOptions(this.cameraName);
+    const useDenseOutput = streamOptions.mode === 'camview' && streamOptions.dense;
+    const useSubStream = streamOptions.mode === 'camview' && videoConfig.subSource;
 
-    let ffmpegInput = [...cameraUtils.generateInputSource(videoConfig).split(/\s+/)];
+    let ffmpegInput = [
+      ...cameraUtils.generateInputSource(videoConfig, useSubStream ? videoConfig.subSource : false).split(/\s+/),
+    ];
     ffmpegInput = cameraUtils.checkDeprecatedFFmpegArguments(this.#mediaService.codecs.ffmpegVersion, ffmpegInput);
 
     let prebuffer = null;
@@ -88,13 +118,21 @@ export default class StreamService {
       audioArguments.unshift('-map', videoConfig.mapaudio);
     }
 
+    const outputResolution = cameraSetting?.resolution
+      ? cameraSetting.resolution
+      : `${videoConfig.maxWidth}x${videoConfig.maxHeight}`;
+    const outputFPS = useDenseOutput ? Math.min(videoConfig.maxFPS, DENSE_STREAM_MAX_FPS) : videoConfig.maxFPS;
+    const outputBitrate = useDenseOutput
+      ? Math.min(videoConfig.maxBitrate, DENSE_STREAM_MAX_BITRATE)
+      : videoConfig.maxBitrate;
+
     const additionalFlags = [
       '-s',
-      cameraSetting?.resolution ? cameraSetting.resolution : `${videoConfig.maxWidth}x${videoConfig.maxHeight}`,
+      useDenseOutput ? fitDenseResolution(outputResolution) : outputResolution,
       '-b:v',
-      `${videoConfig.maxBitrate}k`,
+      `${outputBitrate}k`,
       '-r',
-      videoConfig.maxFPS,
+      outputFPS,
       '-bf',
       '0',
       '-preset:v',
@@ -170,6 +208,11 @@ export default class StreamService {
         }
 
         this.streamSession = null;
+
+        if (!this.destroyed && Socket.hasStreamClients(this.cameraName)) {
+          log.warn('Stream exited while clients are connected. Restarting stream...', this.cameraName, 'streams');
+          setTimeout(() => this.start(), 2000);
+        }
 
         /*if (!prebuffer) {
           this.#sessionService.closeSession();

@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag to create, for example v1.1.18-windows.1"
+        description: "Release tag to create, for example v1.1.19-windows.1"
         required: true
         type: string
 
@@ -45,18 +45,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
         run: |
+          $installer = Get-ChildItem -Path "dist" -Filter "camera.ui Setup *.exe" | Select-Object -First 1
+
+          if (!$installer) {
+            throw "Windows installer was not found in dist"
+          }
+
+          $assets = @($installer.FullName)
+          $blockmap = "$($installer.FullName).blockmap"
+
+          if (Test-Path $blockmap) {
+            $assets += $blockmap
+          }
+
+          if (Test-Path "dist/latest.yml") {
+            $assets += "dist/latest.yml"
+          }
+
           $notes = @"
           Windows installer for camera.ui.
 
-          Download and run `camera.ui Setup 1.1.18.exe`.
+          Download and run `$($installer.Name)`.
 
           This installer includes the desktop runtime, camera.ui server, built web interface, and ffmpeg. The target PC does not need Node.js or npm.
           "@
 
-          gh release create "$env:RELEASE_TAG" `
-            "dist/camera.ui Setup 1.1.18.exe" `
-            "dist/camera.ui Setup 1.1.18.exe.blockmap" `
-            "dist/latest.yml" `
+          gh release create "$env:RELEASE_TAG" @assets `
             --repo "$env:GITHUB_REPOSITORY" `
             --title "camera.ui Windows Installer $env:RELEASE_TAG" `
             --notes "$notes"

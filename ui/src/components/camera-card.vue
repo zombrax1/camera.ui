@@ -28,7 +28,7 @@
         // Offline
         .offline.tw-flex.tw-flex-col.tw-justify-center.tw-items-center(v-if="!loading && offline")
           v-icon.tw-text-white(x-large v-if="!stream") {{ icons['mdiVideoOff'] }}
-          v-btn.tw-text-white.tw-mt-3(v-if="stream" small color="var(--cui-primary)" @click="refreshStream" fab)
+          v-btn.tw-text-white.tw-mt-3(v-if="stream" small color="var(--cui-primary)" @click="refreshStream(false)" fab)
             v-icon.tw-text-white {{ icons['mdiReload'] }}
           .tw-font-bold.tw-text-xs.tw-mt-2.text-muted {{ $t('offline') }}
 
@@ -59,7 +59,7 @@
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="handleStartStop") {{ !play ? icons['mdiPlay'] : icons['mdiPause'] }}
             .tw-ml-auto
             .tw-block.tw-p-2.tw-pr-0(v-if="!hideIndicatorReload")
-              v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="refreshStream") {{ icons['mdiRefresh'] }}
+              v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="refreshStream(false)") {{ icons['mdiRefresh'] }}
             .tw-block.tw-p-2.tw-pr-0(v-if="camera.settings.audio && !hideIndicatorAudio")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="handleVolume") {{ audio ? icons['mdiVolumeHigh'] : icons['mdiVolumeOff'] }}
             .tw-block.tw-p-2.tw-pr-0(v-if="!hideIndicatorFullscreen")
@@ -104,6 +104,8 @@ import {
 import { getCameraSnapshot, getCameraStatus } from '@/api/cameras.api';
 
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const STREAM_STALL_TIMEOUT = 15000;
+const STREAM_WATCHDOG_INTERVAL = 5000;
 
 export default {
   components: {
@@ -112,6 +114,7 @@ export default {
   props: {
     blank: Boolean,
     camera: Object,
+    denseStream: Boolean,
     hideController: Boolean,
     hideNotifications: Boolean,
     hideIndicatorAudio: Boolean,
@@ -123,6 +126,10 @@ export default {
     snapshot: Boolean,
     status: Boolean,
     stream: Boolean,
+    streamMode: {
+      type: String,
+      default: 'default',
+    },
     title: Boolean,
     titlePosition: {
       type: String,
@@ -151,9 +158,11 @@ export default {
     offline: false,
     play: false,
     player: null,
+    lastStreamDataAt: 0,
     snapshotTimerTimeout: null,
     snapshotTimeout: null,
     streamTimeout: null,
+    streamWatchdogInterval: null,
     timeout: 60,
   }),
 
@@ -278,15 +287,16 @@ export default {
         this.streamTimeout = null;
       }
 
-      if (rejoin) {
-        this.$socket.client.emit('rejoin_stream', { feed: this.camera.name });
+      if (rejoin === true) {
+        this.$socket.client.emit('rejoin_stream', this.streamSocketPayload());
       } else {
         this.offline = false;
         this.loading = true;
+        this.lastStreamDataAt = Date.now();
 
         this.pauseStream(true);
 
-        this.$socket.client.emit('refresh_stream', { feed: this.camera.name });
+        this.$socket.client.emit('refresh_stream', this.streamSocketPayload());
 
         this.streamTimeout = setTimeout(() => {
           if (this.loading) {
@@ -400,6 +410,7 @@ export default {
             onSourceEstablished: () => {
               this.loading = false;
               this.offline = false;
+              this.lastStreamDataAt = Date.now();
 
               this.play = true;
               this.player.volume = 0;
@@ -416,11 +427,11 @@ export default {
           this.player.name = this.camera.name;
           this.audio = !this.isMobile() && this.player.volume;
 
-          this.$socket.client.emit('join_stream', {
-            feed: this.camera.name,
-          });
+          this.lastStreamDataAt = Date.now();
+          this.$socket.client.emit('join_stream', this.streamSocketPayload());
 
           this.$socket.client.on(this.camera.name, this.writeStream);
+          this.startStreamWatchdog();
 
           this.streamTimeout = setTimeout(() => {
             if (this.loading) {
@@ -479,9 +490,35 @@ export default {
         this.streamTimeout = null;
       }
 
-      this.$socket.client.emit('leave_stream', {
+      this.stopStreamWatchdog();
+
+      this.$socket.client.emit('leave_stream', this.streamSocketPayload());
+    },
+    startStreamWatchdog() {
+      this.stopStreamWatchdog();
+
+      this.streamWatchdogInterval = setInterval(() => {
+        if (!this.player || this.loading || this.offline || !this.lastStreamDataAt) {
+          return;
+        }
+
+        if (Date.now() - this.lastStreamDataAt >= STREAM_STALL_TIMEOUT) {
+          this.refreshStream(false);
+        }
+      }, STREAM_WATCHDOG_INTERVAL);
+    },
+    stopStreamWatchdog() {
+      if (this.streamWatchdogInterval) {
+        clearInterval(this.streamWatchdogInterval);
+        this.streamWatchdogInterval = null;
+      }
+    },
+    streamSocketPayload() {
+      return {
         feed: this.camera.name,
-      });
+        dense: this.denseStream,
+        mode: this.streamMode,
+      };
     },
     toggleFullscreen() {
       this.fullscreen = !this.fullscreen;
@@ -503,6 +540,7 @@ export default {
     },
     writeStream(buffer) {
       if (this.player) {
+        this.lastStreamDataAt = Date.now();
         this.player.source.write(buffer);
       }
     },
