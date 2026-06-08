@@ -66,20 +66,25 @@ export const permissionLevels = [
   'settings:recordings:edit',
 ];
 
+const pathExists = (candidate) => {
+  try {
+    return Boolean(candidate && fs.existsSync(candidate));
+  } catch {
+    return false;
+  }
+};
+
 const resolveDefaultVideoProcess = () => {
   const candidates = [process.env.CUI_FFMPEG_PATH, ffmpegPath].filter(Boolean);
-  const existingPath = candidates.find((candidate) => {
-    try {
-      return fs.existsSync(candidate);
-    } catch {
-      return false;
-    }
-  });
+  const existingPath = candidates.find((candidate) => pathExists(candidate));
 
   return existingPath || 'ffmpeg';
 };
 
 export const defaultVideoProcess = resolveDefaultVideoProcess();
+
+const resolveVideoProcess = (configuredVideoProcessor) =>
+  pathExists(configuredVideoProcessor) ? configuredVideoProcessor : defaultVideoProcess;
 
 export const minNodeVersion = '16.12.0';
 
@@ -107,7 +112,7 @@ export class ConfigSetup {
 
   static setupOptions(options = {}) {
     return {
-      videoProcessor: options?.videoProcessor || defaultVideoProcess,
+      videoProcessor: resolveVideoProcess(options?.videoProcessor),
     };
   }
 

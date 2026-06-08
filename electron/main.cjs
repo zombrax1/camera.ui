@@ -9,6 +9,7 @@ let mainWindow = null;
 let cameraUi = null;
 let isClosing = false;
 
+const appCredit = 'Crafted by ZomBrox';
 const resolveAppRoot = () => (app.isPackaged ? path.join(process.resourcesPath, 'app') : path.resolve(__dirname, '..'));
 const ffmpegBinaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
 
@@ -78,6 +79,12 @@ const createStartupHtml = ({ title, message, detail = '', state = 'loading' }) =
       font-size: 15px;
       line-height: 1.5;
     }
+    .credit {
+      margin-top: 18px;
+      color: #7f8b98;
+      font-size: 12px;
+      letter-spacing: 0;
+    }
     pre {
       margin: 22px 0 0;
       padding: 14px;
@@ -103,6 +110,7 @@ const createStartupHtml = ({ title, message, detail = '', state = 'loading' }) =
     <h1>${escapeHtml(title)}</h1>
     <p>${escapeHtml(message)}</p>
     ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ''}
+    <p class="credit">${escapeHtml(appCredit)}</p>
   </main>
 </body>
 </html>`;
@@ -127,11 +135,52 @@ const resolveBundledFfmpegPath = (appRoot) => {
   return candidates.find((candidate) => fs.pathExistsSync(candidate));
 };
 
-const configureVideoProcessor = (appRoot, configuredVideoProcessor) => {
+const normalizeFilePath = (value = '') => path.normalize(String(value)).toLowerCase();
+
+const pathExists = (value) => {
+  if (!value) {
+    return false;
+  }
+
+  try {
+    return fs.pathExistsSync(value);
+  } catch {
+    return false;
+  }
+};
+
+const isPackagedFfmpegPath = (videoProcessor = '', appRoot) => {
+  if (!videoProcessor) {
+    return false;
+  }
+
+  const normalizedVideoProcessor = normalizeFilePath(videoProcessor);
+  const normalizedRoots = [appRoot, app.isPackaged ? process.resourcesPath : null]
+    .filter(Boolean)
+    .map((root) => normalizeFilePath(root));
+  const oldBundledModulePath = `${path.sep}ffmpeg-for-homebridge${path.sep}`.toLowerCase();
+
+  return (
+    normalizedVideoProcessor.includes(oldBundledModulePath) ||
+    normalizedRoots.some((root) => normalizedVideoProcessor.startsWith(root))
+  );
+};
+
+const configureVideoProcessor = (appRoot, configJson = {}) => {
+  const configuredVideoProcessor = configJson?.options?.videoProcessor;
   const bundledFfmpegPath = resolveBundledFfmpegPath(appRoot);
 
   if (bundledFfmpegPath) {
     process.env.CUI_FFMPEG_PATH = bundledFfmpegPath;
+
+    if (
+      !pathExists(configuredVideoProcessor) ||
+      (app.isPackaged && isPackagedFfmpegPath(configuredVideoProcessor, appRoot))
+    ) {
+      configJson.options = configJson.options || {};
+      configJson.options.videoProcessor = bundledFfmpegPath;
+    }
+
     return;
   }
 
@@ -195,8 +244,8 @@ const startCameraUi = async () => {
   await ensureStorage(storagePath);
   setCameraUiEnvironment(appRoot, storagePath);
 
-  const configJson = fs.readJSONSync(process.env.CUI_STORAGE_CONFIG_FILE, { throws: false });
-  configureVideoProcessor(appRoot, configJson?.options?.videoProcessor);
+  const configJson = fs.readJSONSync(process.env.CUI_STORAGE_CONFIG_FILE, { throws: false }) || {};
+  configureVideoProcessor(appRoot, configJson);
 
   const [{ default: LoggerService }, { default: ConfigService }, { default: Interface }] = await Promise.all([
     importFromApp(appRoot, 'src/services/logger/logger.service.js'),
