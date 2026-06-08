@@ -27,6 +27,32 @@ import { mdiCloudUpload } from '@mdi/js';
 import { getConfig } from '@/api/config.api';
 import { getPackage } from '@/api/system.api';
 
+const versionValue = (version) => version.value || version;
+const versionChannel = (version) => versionValue(version).split('-')[1]?.split('.')[0] || 'latest';
+const isRelatedVersion = (version, currentChannel) => {
+  const channel = versionChannel(version);
+
+  if (currentChannel === 'latest') {
+    return channel === 'latest' || channel === 'windows';
+  }
+
+  return channel === currentChannel;
+};
+const sortVersionValues = (versions) =>
+  versions
+    .filter((version) => compareVersions.validate(version))
+    .sort((a, b) => {
+      if (compareVersions.compare(a, b, '>')) {
+        return -1;
+      }
+
+      if (compareVersions.compare(a, b, '<')) {
+        return 1;
+      }
+
+      return 0;
+    });
+
 export default {
   name: 'StatusWidget',
 
@@ -63,58 +89,11 @@ export default {
       }
 
       const pkg = await getPackage();
-      const distTags = pkg.data['dist-tags'];
-      const versions = Object.keys(pkg.data.versions).reverse();
-
-      versions.forEach((version) => {
-        let versionDistTag = version.split('-')[1];
-
-        if (versionDistTag) {
-          //alpha,beta,test
-          versionDistTag = versionDistTag.split('.')[0];
-
-          const distTagExist = this.availableVersions.some((v) => {
-            let vDistTag = (v.value ? v.value : v).split('-')[1];
-
-            if (vDistTag) {
-              vDistTag = vDistTag.split('.')[0];
-
-              if (vDistTag === versionDistTag) {
-                return true;
-              }
-            }
-          });
-
-          if (!distTagExist) {
-            this.availableVersions.push(version);
-          }
-        } else {
-          //latest
-          if (version === distTags.latest) {
-            this.availableVersions.push({ value: version, text: `${version}-latest` });
-            const versionExist = this.availableVersions.some((v) => (v.value || v) === this.currentVersion);
-
-            if (version !== this.currentVersion && !versionExist) {
-              this.availableVersions.push(this.currentVersion);
-            }
-          } else {
-            this.availableVersions.push(version);
-          }
-        }
-      });
-
-      const relatedVersions = this.availableVersions.filter((version) => {
-        const v = version.value ? version.value : version;
-
-        if (currentDistTag !== 'latest' && v.includes(currentDistTag)) {
-          return version;
-        } else if (currentDistTag === 'latest' && !v.includes('-')) {
-          return version;
-        }
-      });
+      const versions = sortVersionValues(Object.keys(pkg.data.versions));
+      const relatedVersions = versions.filter((version) => isRelatedVersion(version, currentDistTag));
 
       this.npmPackageName = pkg.data.name;
-      this.latestVersion = relatedVersions[0].value || relatedVersions[0];
+      this.latestVersion = relatedVersions[0] || this.currentVersion;
       this.updateAvailable = compareVersions.compare(this.latestVersion, this.currentVersion, '>');
 
       this.loading = false;

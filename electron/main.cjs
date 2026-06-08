@@ -35,6 +35,8 @@ const setCameraUiEnvironment = (appRoot, storagePath) => {
   process.env.CUI_MODULE_VERSION = packageJson.version;
   process.env.CUI_MODULE_GLOBAL = '0';
   process.env.CUI_MODULE_SUDO = '0';
+  process.env.CUI_DESKTOP_APP = '1';
+  process.env.CUI_DESKTOP_PACKAGED = app.isPackaged ? '1' : '0';
   process.env.CUI_VERSION = packageJson.version;
 };
 

@@ -107,6 +107,8 @@ export default class ConfigService {
       moduleName: process.env.CUI_MODULE_NAME,
       global: process.env.CUI_MODULE_GLOBAL === '1',
       sudo: process.env.CUI_MODULE_SUDO === '1',
+      desktop: process.env.CUI_DESKTOP_APP === '1',
+      packaged: process.env.CUI_DESKTOP_PACKAGED === '1',
     };
 
     //defaults

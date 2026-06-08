@@ -31,12 +31,15 @@ const SOURCE_REPOSITORY = {
 };
 
 const SOURCE_REPOSITORY_API = `https://api.github.com/repos/${SOURCE_REPOSITORY.name}`;
+const SOURCE_REPOSITORY_WEB = `https://github.com/${SOURCE_REPOSITORY.name}`;
 const SOURCE_REPOSITORY_RELEASE_URL = `${SOURCE_REPOSITORY_API}/releases`;
 const SOURCE_REPOSITORY_TAG_URL = `${SOURCE_REPOSITORY_API}/tags`;
 
 const setTimeoutAsync = (ms) => new Promise((res) => setTimeout(res, ms));
 
 const normalizeVersion = (version) => version?.toString().trim().replace(/^v/i, '');
+
+const releaseUrlForVersion = (version) => `${SOURCE_REPOSITORY_WEB}/releases/tag/v${version}`;
 
 const sortVersions = (versions) => {
   return [...new Set(versions.filter((version) => compareVersions.validate(version)))].sort((a, b) => {
@@ -305,19 +308,29 @@ export const downloadLog = async (req, res) => {
 export const fetchNpm = async (req, res) => {
   try {
     const [versions, source] = await Promise.all([getSourceVersions(), getSourceStatus()]);
-    const versionMap = versions.reduce((data, version) => {
-      data[version] = {
+    const latestVersion = versions[0] || ConfigService.version;
+    const versionMap = {};
+
+    for (const version of [...versions].reverse()) {
+      versionMap[version] = {
         name: SOURCE_REPOSITORY.name,
+        releaseUrl: releaseUrlForVersion(version),
         version,
       };
-
-      return data;
-    }, {});
+    }
 
     res.status(200).send({
       name: SOURCE_REPOSITORY.name,
       'dist-tags': {
-        latest: versions[0] || ConfigService.version,
+        latest: latestVersion,
+      },
+      latest: {
+        releaseUrl: releaseUrlForVersion(latestVersion),
+        version: latestVersion,
+      },
+      releases: {
+        latestUrl: releaseUrlForVersion(latestVersion),
+        url: `${SOURCE_REPOSITORY_WEB}/releases`,
       },
       repository: {
         type: 'git',
@@ -337,24 +350,30 @@ export const fetchNpm = async (req, res) => {
 export const getChangelog = async (req, res) => {
   try {
     const version = normalizeVersion(req.query.version || ConfigService.version);
-    const tagName = `v${version}`;
+    const tagNames = [`v${version}`];
 
-    try {
-      const response = await axios(`${SOURCE_REPOSITORY_RELEASE_URL}/tags/${tagName}`, {
-        headers: {
-          accept: 'application/vnd.github+json',
-        },
-      });
-
-      const release = response.data;
-      const releaseNotes = release.body?.trim() || `No release notes were published for ${tagName}.`;
-
-      return res.status(200).send(`# ${release.name || tagName}\n\n${releaseNotes}`);
-    } catch (error) {
-      log.warn(`Failed to fetch GitHub release notes: ${error.message}`, 'System', 'system');
+    if (!version.includes('-')) {
+      tagNames.push(`v${version}-windows.1`);
     }
 
-    res.status(200).send(`No release notes were found for ${tagName}.`);
+    for (const tagName of tagNames) {
+      try {
+        const response = await axios(`${SOURCE_REPOSITORY_RELEASE_URL}/tags/${tagName}`, {
+          headers: {
+            accept: 'application/vnd.github+json',
+          },
+        });
+
+        const release = response.data;
+        const releaseNotes = release.body?.trim() || `No release notes were published for ${tagName}.`;
+
+        return res.status(200).send(`# ${release.name || tagName}\n\n${releaseNotes}`);
+      } catch (error) {
+        log.warn(`Failed to fetch GitHub release notes: ${error.message}`, 'System', 'system');
+      }
+    }
+
+    res.status(200).send(`No release notes were found for ${tagNames.join(' or ')}.`);
   } catch (error) {
     res.status(500).send({
       statusCode: 500,

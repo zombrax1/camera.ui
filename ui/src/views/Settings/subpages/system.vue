@@ -13,7 +13,7 @@
       label.form-input-label {{ $t('version') }}
       span.tw-text-right(:class="updateAvailable ? 'tw-text-red-500' : 'tw-text-green-500'") {{ updateAvailable ? $t('update_available') : $t('up_to_date') }}
 
-    label.form-input-label Update from GitHub
+    label.form-input-label {{ desktopApp ? 'Windows installer release' : 'Update from GitHub' }}
     v-select(:loading="loadingNpm" :disabled="loadingNpm" :value="currentVersion" v-model="currentVersion" :items="availableVersions" prepend-inner-icon="mdi-github" append-outer-icon="mdi-update" background-color="var(--cui-bg-card)" solo)
       template(v-slot:prepend-inner)
         v-icon.text-muted {{ icons['mdiGithub'] }}
@@ -32,7 +32,7 @@
             v-divider
             v-card-actions.tw-flex.tw-justify-end
               v-btn.text-default(text @click='closeUpdateDialog') {{ $t('cancel') }}
-              v-btn(color='var(--cui-primary)' text @click='onUpdateRestart') {{ `${$t('update')} & ${$t('restart')}` }}
+              v-btn(color='var(--cui-primary)' text @click='onUpdateRestart') {{ desktopApp ? 'Download installer' : `${$t('update')} & ${$t('restart')}` }}
 
     v-dialog(v-model="restartDialog" width="500" scrollable)
       template(v-slot:activator='{ on, attrs }')
@@ -263,6 +263,31 @@ import {
 import { resetSettings } from '@/api/settings.api';
 
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const versionValue = (version) => version.value || version;
+const versionChannel = (version) => versionValue(version).split('-')[1]?.split('.')[0] || 'latest';
+const isRelatedVersion = (version, currentChannel) => {
+  const channel = versionChannel(version);
+
+  if (currentChannel === 'latest') {
+    return channel === 'latest' || channel === 'windows';
+  }
+
+  return channel === currentChannel;
+};
+const sortVersionValues = (versions) =>
+  versions
+    .filter((version) => compareVersions.validate(version))
+    .sort((a, b) => {
+      if (compareVersions.compare(a, b, '>')) {
+        return -1;
+      }
+
+      if (compareVersions.compare(a, b, '<')) {
+        return 1;
+      }
+
+      return 0;
+    });
 
 export default {
   name: 'SystemSettings',
@@ -323,12 +348,15 @@ export default {
     currentVersion: null,
     configFile: {},
     dbFile: {},
+    desktopApp: false,
     env: '',
     installedVersion: null,
     latestVersion: null,
+    releasePageUrl: '',
     sourceUpdateAvailable: false,
     serviceMode: false,
     updateAvailable: false,
+    versionDetails: {},
     npmPackageName: 'camera.ui',
     logLevels: ['info', 'debug', 'warn', 'error'],
 
@@ -375,6 +403,7 @@ export default {
       }
 
       this.serviceMode = config.data.serviceMode;
+      this.desktopApp = Boolean(config.data.env?.desktop);
       this.installedVersion = config.data.version;
       this.currentVersion = config.data.version;
 
@@ -424,57 +453,23 @@ export default {
 
       const pkg = await getPackage();
       const distTags = pkg.data['dist-tags'];
-      const versions = Object.keys(pkg.data.versions).reverse();
+      const versions = sortVersionValues(Object.keys(pkg.data.versions));
+      const relatedVersions = versions.filter((version) => isRelatedVersion(version, currentDistTag));
 
-      versions.forEach((version) => {
-        let versionDistTag = version.split('-')[1];
+      this.versionDetails = pkg.data.versions || {};
+      this.releasePageUrl = pkg.data.releases?.latestUrl || pkg.data.latest?.releaseUrl || '';
+      this.availableVersions = versions.map((version) =>
+        version === distTags.latest ? { value: version, text: `${version}-latest` } : version
+      );
 
-        if (versionDistTag) {
-          //alpha,beta,test
-          versionDistTag = versionDistTag.split('.')[0];
+      const versionExist = this.availableVersions.some((version) => versionValue(version) === this.currentVersion);
 
-          const distTagExist = this.availableVersions.some((v) => {
-            let vDistTag = (v.value ? v.value : v).split('-')[1];
-
-            if (vDistTag) {
-              vDistTag = vDistTag.split('.')[0];
-
-              if (vDistTag === versionDistTag) {
-                return true;
-              }
-            }
-          });
-
-          if (!distTagExist) {
-            this.availableVersions.push(version);
-          }
-        } else {
-          //latest
-          if (version === distTags.latest) {
-            this.availableVersions.push({ value: version, text: `${version}-latest` });
-            const versionExist = this.availableVersions.some((v) => (v.value || v) === this.currentVersion);
-
-            if (version !== this.installedVersion && !versionExist) {
-              this.availableVersions.push(this.installedVersion);
-            }
-          } else {
-            this.availableVersions.push(version);
-          }
-        }
-      });
-
-      const relatedVersions = this.availableVersions.filter((version) => {
-        const v = version.value ? version.value : version;
-
-        if (currentDistTag !== 'latest' && v.includes(currentDistTag)) {
-          return version;
-        } else if (currentDistTag === 'latest' && !v.includes('-')) {
-          return version;
-        }
-      });
+      if (!versionExist) {
+        this.availableVersions.push(this.currentVersion);
+      }
 
       this.npmPackageName = pkg.data.name;
-      this.latestVersion = relatedVersions[0].value || relatedVersions[0];
+      this.latestVersion = relatedVersions[0] || this.currentVersion;
       this.sourceUpdateAvailable = Boolean(pkg.data.source?.updateAvailable);
       this.updateAvailable =
         compareVersions.compare(this.latestVersion, this.installedVersion, '>') || this.sourceUpdateAvailable;
@@ -783,6 +778,16 @@ export default {
       this.updateDialog = false;
 
       if (this.loadingUpdate) {
+        return;
+      }
+
+      if (this.desktopApp) {
+        const releasePageUrl = this.versionDetails[this.currentVersion]?.releaseUrl || this.releasePageUrl;
+
+        if (releasePageUrl) {
+          window.open(releasePageUrl, '_blank');
+        }
+
         return;
       }
 
