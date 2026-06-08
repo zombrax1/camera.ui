@@ -67,16 +67,15 @@ For camera discovery, make sure the computer and cameras are on the same LAN. So
 For a normal camera PC, use the Windows installer. Do not install Node.js, do not run `npm`, and do not build from source on that PC.
 
 1. Open this repository on GitHub.
-2. Go to **Actions -> Build Windows Installer**.
-3. Open the latest successful run.
-4. Download the **camera-ui-windows-installer** artifact.
-5. Extract the downloaded artifact zip.
-6. Run `camera.ui Setup <version>.exe`.
-7. Launch **camera.ui** from the desktop shortcut or Start Menu.
+2. Go to **Releases**.
+3. Open the latest `camera.ui Windows Installer` release.
+4. Download `camera.ui Setup <version>.exe`.
+5. Run the installer.
+6. Launch **camera.ui** from the desktop shortcut or Start Menu.
 
 The installer includes the desktop runtime, camera.ui server, built web interface, and ffmpeg. The target PC only needs Windows, network access to the cameras, and port `8081` free.
 
-The installer is large because it bundles the desktop runtime and ffmpeg so the target PC does not need Node.js or command-line build tools. GitHub does not accept normal git source files over 100 MB, so the `.exe` is published as a GitHub Actions artifact instead of being committed into the repository.
+The installer is large because it bundles the desktop runtime and ffmpeg so the target PC does not need Node.js or command-line build tools. GitHub does not accept normal git source files over 100 MB, so the `.exe` is published as a GitHub Release asset instead of being committed into the repository.
 
 ## Install This Repository From Source
 

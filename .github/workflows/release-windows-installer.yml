@@ -1,0 +1,62 @@
+name: Release Windows Installer
+
+on:
+  push:
+    tags:
+      - "v*-windows.*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create, for example v1.1.18-windows.1"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  windows-release:
+    name: Build and publish Windows release
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Use Node.js 22 LTS
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install server and packager dependencies
+        run: npm install
+
+      - name: Install UI dependencies
+        run: npm install --legacy-peer-deps --prefix ui
+
+      - name: Build installer
+        run: npm run dist:win
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
+        run: |
+          $notes = @"
+          Windows installer for camera.ui.
+
+          Download and run `camera.ui Setup 1.1.18.exe`.
+
+          This installer includes the desktop runtime, camera.ui server, built web interface, and ffmpeg. The target PC does not need Node.js or npm.
+          "@
+
+          gh release create "$env:RELEASE_TAG" `
+            "dist/camera.ui Setup 1.1.18.exe" `
+            "dist/camera.ui Setup 1.1.18.exe.blockmap" `
+            "dist/latest.yml" `
+            --repo "$env:GITHUB_REPOSITORY" `
+            --title "camera.ui Windows Installer $env:RELEASE_TAG" `
+            --notes "$notes"
