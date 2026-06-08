@@ -12,10 +12,10 @@ import Database from '../../../api/database.js';
 import Socket from '../../../api/socket.js';
 
 const { log } = LoggerService;
-const DENSE_STREAM_MAX_WIDTH = 480;
-const DENSE_STREAM_MAX_HEIGHT = 270;
+const DENSE_STREAM_MAX_WIDTH = 640;
+const DENSE_STREAM_MAX_HEIGHT = 360;
 const DENSE_STREAM_MAX_FPS = 20;
-const DENSE_STREAM_MAX_BITRATE = 192;
+const DENSE_STREAM_MAX_BITRATE = 256;
 const STREAM_RESTART_WINDOW = 60 * 1000;
 const STREAM_RESTART_LIMIT = 3;
 
@@ -83,13 +83,17 @@ export default class StreamService {
     const videoConfig = cameraUtils.generateVideoConfig(this.#camera.videoConfig);
     const streamOptions = Socket.getStreamOptions(this.cameraName);
     const useDenseOutput = streamOptions.mode === 'camview' && streamOptions.dense;
+    const useSubStream =
+      useDenseOutput && videoConfig.subSource && String(videoConfig.subSource) !== String(videoConfig.source);
 
-    let ffmpegInput = [...cameraUtils.generateInputSource(videoConfig).split(/\s+/)];
+    let ffmpegInput = [
+      ...cameraUtils.generateInputSource(videoConfig, useSubStream ? videoConfig.subSource : false).split(/\s+/),
+    ];
     ffmpegInput = cameraUtils.checkDeprecatedFFmpegArguments(this.#mediaService.codecs.ffmpegVersion, ffmpegInput);
 
     let prebuffer = null;
 
-    if (this.#camera.prebuffering && this.#prebufferService) {
+    if (!useSubStream && this.#camera.prebuffering && this.#prebufferService) {
       try {
         const containerInput = await this.#prebufferService.getVideo({
           container: 'mpegts',

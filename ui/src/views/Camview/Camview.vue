@@ -37,7 +37,7 @@
   #container.grid-stack
     .grid-stack-item(v-for="(camera, index) in cameras" :gs-id="index" :key="camera.name")
       .grid-stack-item-content
-        VideoCard(:ref="camera.name" :camera="camera" title titlePosition="inner-top" status :stream="camera.live && !lowCpuSnapshotMode" :refreshSnapshot="!camera.live || lowCpuSnapshotMode" :notifications="Boolean(camera.lastNotification)" :denseStream="denseStream" :snapshotRefreshTimer="lowCpuSnapshotMode ? 10 : 0" :streamStartDelay="index * 350" streamMode="camview" blank)
+        VideoCard(:ref="camera.name" :camera="camera" title titlePosition="inner-top" status :stream="camera.live" :refreshSnapshot="!camera.live" :notifications="Boolean(camera.lastNotification)" :denseStream="denseStream" streamMode="camview" blank)
     .tw-flex.tw-justify-center.tw-items-center.tw-h-full.tw-w-full(v-if="!cameras.length")
       span.text-muted {{ $t('no_cameras') }} :(
 
@@ -119,9 +119,6 @@ export default {
     },
     denseStream() {
       return this.cameras.filter((camera) => camera.live).length >= 6;
-    },
-    lowCpuSnapshotMode() {
-      return this.cameras.filter((camera) => camera.live).length >= 12;
     },
   },
 
