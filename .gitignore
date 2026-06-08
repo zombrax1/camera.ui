@@ -155,6 +155,7 @@ stream
 writeStream.js
 mp4
 ui/node_modules
+.electron-builder-cache/
 parseFFmpeg.js
 parseUrl.js
 systeminformation.js

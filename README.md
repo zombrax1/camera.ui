@@ -50,11 +50,15 @@ This repository adds an NVR-style camera onboarding flow for mixed ONVIF and RTS
 
 Install these before installing this repository:
 
-- **Node.js 22 or newer** with `npm`
+- **Node.js 22 LTS** with `npm`
 - **Git**
 - **PowerShell** on Windows, or a normal terminal on Linux/macOS
 - **Network access to your cameras** from the machine running camera.ui
 - **Port `8081` free** on the machine running camera.ui
+
+Do not use Node.js 24 for this repository. The current Vue CLI/Webpack UI build fails on Node.js 24 with a `neo-async` / `Callback was already called` error.
+
+On Windows, clone this repository into a normal user folder such as `C:\camera.ui` or `C:\Users\<you>\Documents\camera.ui`. Do not install it under `C:\Windows\System32`.
 
 For camera discovery, make sure the computer and cameras are on the same LAN. Some cameras also require ONVIF to be enabled in the camera's own settings page.
 
@@ -73,7 +77,7 @@ cd camera.ui
 
 ```powershell
 npm install
-npm install --prefix ui
+npm install --legacy-peer-deps --prefix ui
 ```
 
 ### 3. Build The Web Interface
@@ -81,16 +85,16 @@ npm install --prefix ui
 On Windows PowerShell:
 
 ```powershell
-$env:NODE_OPTIONS = "--openssl-legacy-provider"
-npm run build --prefix ui
+npm run build
 ```
 
 On Linux/macOS:
 
 ```bash
-export NODE_OPTIONS=--openssl-legacy-provider
-npm run build --prefix ui
+npm run build
 ```
+
+The build writes the production web app into `interface/`. If the build does not finish, the backend can still start, but the browser will show `Cannot GET /`.
 
 ### 4. Start camera.ui
 
@@ -131,6 +135,20 @@ Use **IPC Camera** when you know the camera IP and RTSP port. Enter the camera n
 
 Discovered cameras that are already in your list are highlighted so you do not add the same IP twice. A small thumbnail appears when the RTSP test can read a frame from the camera.
 
+## Build A Windows Installer
+
+To make a normal Windows `.exe` installer:
+
+```powershell
+npm install
+npm install --legacy-peer-deps --prefix ui
+npm run dist:win
+```
+
+The installer is created in `dist\camera.ui Setup <version>.exe`.
+
+After installing, launch **camera.ui** from the desktop shortcut or Start Menu. The desktop app starts the camera.ui server internally and opens the interface in its own window, so the target PC does not need Node.js or command-line setup. App data, config, logs, recordings, and reports are stored under `%APPDATA%\camera.ui`.
+
 ## Update An Existing Install
 
 On Windows PowerShell:
@@ -138,9 +156,8 @@ On Windows PowerShell:
 ```powershell
 git pull
 npm install
-npm install --prefix ui
-$env:NODE_OPTIONS = "--openssl-legacy-provider"
-npm run build --prefix ui
+npm install --legacy-peer-deps --prefix ui
+npm run build
 node .\bin\camera.ui.js
 ```
 
@@ -149,15 +166,16 @@ On Linux/macOS:
 ```bash
 git pull
 npm install
-npm install --prefix ui
-export NODE_OPTIONS=--openssl-legacy-provider
-npm run build --prefix ui
+npm install --legacy-peer-deps --prefix ui
+npm run build
 node ./bin/camera.ui.js
 ```
 
 ## Troubleshooting Install Problems
 
-- **Build error `ERR_OSSL_EVP_UNSUPPORTED`**: Run the build with `NODE_OPTIONS=--openssl-legacy-provider` as shown above.
+- **Build error `Callback was already called` or `neo-async` on Node.js 24**: Install Node.js 22 LTS, then rerun `npm install`, `npm install --legacy-peer-deps --prefix ui`, and `npm run build`.
+- **Build error `ERR_OSSL_EVP_UNSUPPORTED`**: Run `npm run build`; the root build script sets `NODE_OPTIONS=--openssl-legacy-provider` automatically.
+- **Browser shows `Cannot GET /` at `http://localhost:8081`**: The backend is running but the UI build is missing. Run `npm run build`, confirm `interface/index.html` exists, then restart `node .\bin\camera.ui.js`.
 - **`http://localhost:8081` does not open**: Check that camera.ui is still running and that port `8081` is not already used by another app.
 - **Camera is detected but shows offline**: The IP may be correct while the RTSP path, RTSP port, username, or password is wrong. Use **IPC Camera** and **Test RTSP** to try the correct stream settings.
 - **ONVIF search does not find a camera**: Enable ONVIF in the camera settings, confirm the camera is on the same LAN, then try common ONVIF ports such as `8888`, `5000`, `8080`, and `80`.

@@ -4,7 +4,10 @@
   "description": "NVR like user interface for RTSP capable cameras.",
   "author": "SeydX (https://github.com/SeydX/camera.ui)",
   "scripts": {
-    "build": "npm run build --prefix ui",
+    "build": "node ./scripts/build-ui.cjs",
+    "electron:dev": "electron ./electron/main.cjs",
+    "pack:win": "npm run build && node ./scripts/package-win.cjs --dir",
+    "dist:win": "npm run build && node ./scripts/package-win.cjs nsis",
     "lint": "concurrently \"npm run lint:server\" \"npm run lint:ui\"",
     "lint:server": "eslint --fix .",
     "lint:ui": "npm run lint --prefix ui",
@@ -62,6 +65,8 @@
     "@babel/eslint-parser": "^7.17.0",
     "@babel/eslint-plugin": "^7.17.7",
     "concurrently": "6.5.1",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
     "eslint": "^8.14.0",
     "eslint-config-prettier": "^8.5.0",
     "eslint-plugin-import": "^2.26.0",
@@ -74,6 +79,41 @@
     "prettier": "^2.6.2",
     "supertest": "6.2.2"
   },
+  "build": {
+    "appId": "com.zombrax.cameraui",
+    "productName": "camera.ui",
+    "asar": false,
+    "npmRebuild": false,
+    "extraMetadata": {
+      "main": "electron/main.cjs"
+    },
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "bin/**/*",
+      "interface/**/*",
+      "images/logo.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "camera.ui",
+      "runAfterFinish": true,
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    }
+  },
   "optionalDependencies": {
     "osx-temperature-sensor": "^1.0.7"
   },
@@ -84,7 +124,7 @@
     "url": "https://github.com/SeydX/camera.ui/issues"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22 <23"
   },
   "funding": [
     {
