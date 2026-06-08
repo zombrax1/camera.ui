@@ -117,12 +117,23 @@
             .tw-text-xs.text-muted.tw-break-all(v-if="ipcCamera.displayUri") {{ ipcCamera.displayUri }}
             .tw-text-xs.text-muted(v-if="ipcCamera.thumbnailError") Preview unavailable: {{ ipcCamera.thumbnailError }}
             .onvif-ipc-actions.tw-mt-4
-              v-btn(color="var(--cui-primary)" text @click="testIpcRtsp" :loading="ipcTesting" :disabled="!!onvifAdding")
+              v-btn(color="var(--cui-primary)" text @click="testIpcRtsp" :loading="ipcTesting" :disabled="!!onvifAdding || onvifBulkAdding")
                 v-icon(left small) {{ icons['mdiTestTube'] }}
                 span Test RTSP
-              v-btn.tw-text-white(color="success" @click="addIpcCamera" :loading="onvifAdding === 'ipc'" :disabled="ipcTesting")
+              v-btn.tw-text-white(color="success" @click="addIpcCamera" :loading="onvifAdding === 'ipc'" :disabled="ipcTesting || onvifBulkAdding")
                 v-icon(left small) {{ icons['mdiPlusCircle'] }}
                 span Add IPC Camera
+          .onvif-bulk-bar.tw-mt-4(v-if="onvifMode === 'search' && onvifDevices.length")
+            .onvif-device-meta-row
+              .onvif-device-pill(:class="{ 'onvif-device-pill--selected': onvifSelectedCount() }")
+                v-icon.onvif-chip-icon(size="13") {{ icons['mdiCheckCircle'] }}
+                span Selected: {{ onvifSelectedCount() }}
+              .onvif-device-pill.onvif-device-pill--working(v-if="onvifWorkingSelectedCount()")
+                v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
+                span Working: {{ onvifWorkingSelectedCount() }}
+            v-btn.tw-text-white(small color="success" @click="addSelectedOnvifStreams" :loading="onvifBulkAdding" :disabled="!onvifSelectedCount() || !!onvifAdding || !!onvifTesting || onvifLoading")
+              v-icon(left small) {{ icons['mdiPlusCircle'] }}
+              span Add selected streams
           v-expansion-panels.tw-mt-5.onvif-device-list(v-if="onvifMode === 'search' && onvifDevices.length" v-model="onvifPanel")
             v-expansion-panel.onvif-device-panel(v-for="(device, deviceIndex) in onvifDevices" :key="device.ip + ':' + device.port" :class="{ 'onvif-device-panel--active': onvifPanel === deviceIndex, 'onvif-device-panel--added': onvifDeviceAlreadyAdded(device), 'onvif-device-panel--auth': device.authRequired && !device.streams.length }")
               v-expansion-panel-header.onvif-device-header
@@ -182,9 +193,11 @@
                     v-list-item.onvif-stream-card.onvif-manual-card(:class="onvifManualStateClass(device)")
                       v-list-item-content
                         .onvif-stream-title-row
-                          .onvif-stream-badge
-                            v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
-                            span Manual RTSP
+                          .onvif-stream-title-main
+                            v-checkbox.onvif-stream-select(:input-value="onvifIsSelected(onvifManualSelectionKey(device))" @change="setOnvifSelection(onvifManualSelectionKey(device), $event)" :disabled="!!onvifAdding || onvifBulkAdding" color="success" dense hide-details :ripple="false")
+                            .onvif-stream-badge
+                              v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
+                              span Manual RTSP
                           .onvif-stream-status(:class="onvifManualStatusClass(device)")
                             v-icon.onvif-chip-icon(size="13") {{ onvifManualStatusIcon(device) }}
                             span {{ onvifManualStatusText(device) }}
@@ -217,19 +230,21 @@
                         .tw-text-xs.text-muted.tw-break-all(v-if="onvifManualDrafts[onvifManualKey(device)].displayUri") {{ onvifManualDrafts[onvifManualKey(device)].displayUri }}
                         .tw-text-xs.text-muted(v-if="onvifManualDrafts[onvifManualKey(device)].thumbnailError") Preview unavailable: {{ onvifManualDrafts[onvifManualKey(device)].thumbnailError }}
                       v-list-item-action
-                        v-btn.tw-mb-2(small color="var(--cui-primary)" text @click="testOnvifManualRtsp(device)" :loading="onvifTesting === onvifManualLoadingKey(device)" :disabled="!!onvifAdding")
+                        v-btn.tw-mb-2(small color="var(--cui-primary)" text @click="testOnvifManualRtsp(device)" :loading="onvifTesting === onvifManualLoadingKey(device)" :disabled="!!onvifAdding || onvifBulkAdding")
                           v-icon(left small) {{ icons['mdiTestTube'] }}
                           span Test RTSP
-                        v-btn.tw-text-white(small color="success" @click="addOnvifManualCamera(device)" :loading="onvifAdding === onvifManualLoadingKey(device)")
+                        v-btn.tw-text-white(small color="success" @click="addOnvifManualCamera(device)" :loading="onvifAdding === onvifManualLoadingKey(device)" :disabled="onvifBulkAdding")
                           v-icon(left small) {{ icons['mdiPlusCircle'] }}
                           span Use RTSP
                 v-list.onvif-stream-list(dense color="transparent" v-if="device.streams.length")
                   v-list-item.onvif-stream-card(v-for="(stream, streamIndex) in device.streams" :key="device.ip + '-' + stream.token" :class="onvifStreamStateClass(device, stream)")
                     v-list-item-content
                       .onvif-stream-title-row
-                        .onvif-stream-badge
-                          v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
-                          span Stream {{ streamIndex + 1 }}
+                        .onvif-stream-title-main
+                          v-checkbox.onvif-stream-select(:input-value="onvifIsSelected(onvifStreamSelectionKey(device, stream))" @change="setOnvifSelection(onvifStreamSelectionKey(device, stream), $event)" :disabled="!!onvifAdding || onvifBulkAdding" color="success" dense hide-details :ripple="false")
+                          .onvif-stream-badge
+                            v-icon.onvif-chip-icon(size="13") {{ icons['mdiVideoWireless'] }}
+                            span Stream {{ streamIndex + 1 }}
                         .onvif-stream-status(:class="onvifStreamStatusClass(device, stream)")
                           v-icon.onvif-chip-icon(size="13") {{ onvifStreamStatusIcon(device, stream) }}
                           span {{ onvifStreamStatusText(device, stream) }}
@@ -264,15 +279,18 @@
                       .tw-text-xs.text-muted.tw-break-all(v-if="onvifDrafts[onvifStreamKey(device, stream)] && onvifDrafts[onvifStreamKey(device, stream)].displayUri") {{ onvifDrafts[onvifStreamKey(device, stream)].displayUri }}
                       .tw-text-xs.text-muted(v-if="onvifDrafts[onvifStreamKey(device, stream)] && onvifDrafts[onvifStreamKey(device, stream)].thumbnailError") Preview unavailable: {{ onvifDrafts[onvifStreamKey(device, stream)].thumbnailError }}
                     v-list-item-action
-                      v-btn.tw-mb-2(small color="var(--cui-primary)" text @click="testOnvifStream(device, stream)" :loading="onvifTesting === device.ip + '-' + stream.token" :disabled="!!onvifAdding")
+                      v-btn.tw-mb-2(small color="var(--cui-primary)" text @click="testOnvifStream(device, stream)" :loading="onvifTesting === device.ip + '-' + stream.token" :disabled="!!onvifAdding || onvifBulkAdding")
                         v-icon(left small) {{ icons['mdiTestTube'] }}
                         span Test RTSP
-                      v-btn.tw-text-white(small color="success" @click="addOnvifCamera(device, stream)" :loading="onvifAdding === device.ip + '-' + stream.token")
+                      v-btn.tw-text-white(small color="success" @click="addOnvifCamera(device, stream)" :loading="onvifAdding === device.ip + '-' + stream.token" :disabled="onvifBulkAdding")
                         v-icon(left small) {{ icons['mdiPlusCircle'] }}
                         span Use stream
         v-divider
         v-card-actions.tw-flex.tw-justify-end
           v-btn.text-default(text @click='onvifDialog = false') {{ $t('close') }}
+          v-btn(v-if="onvifMode === 'search' && onvifDevices.length" color='success' text @click='addSelectedOnvifStreams' :loading="onvifBulkAdding" :disabled="!onvifSelectedCount() || !!onvifAdding || !!onvifTesting || onvifLoading")
+            v-icon(left small) {{ icons['mdiPlusCircle'] }}
+            span Add selected streams
           v-btn(v-if="onvifMode === 'search'" color='var(--cui-primary)' text @click='discoverOnvif' :loading="onvifLoading")
             v-icon(left small) {{ icons['mdiRefresh'] }}
             span Scan again
@@ -1143,6 +1161,7 @@ export default {
       onvifDialog: false,
       onvifLoading: false,
       onvifAdding: null,
+      onvifBulkAdding: false,
       onvifInspecting: null,
       onvifTesting: null,
       onvifMode: 'search',
@@ -1151,6 +1170,7 @@ export default {
       onvifDeviceDrafts: {},
       onvifDrafts: {},
       onvifManualDrafts: {},
+      onvifSelectedStreams: {},
       onvifPanel: null,
       onvifUsername: 'admin',
       onvifPassword: '',
@@ -1351,6 +1371,7 @@ export default {
       this.onvifLoading = true;
       this.onvifPanel = null;
       this.onvifScan = null;
+      this.onvifSelectedStreams = {};
 
       try {
         const response = await discoverOnvifCameras();
@@ -1493,6 +1514,56 @@ export default {
     },
     onvifManualLoadingKey(device) {
       return `${device.ip}-manual`;
+    },
+    onvifManualSelectionKey(device) {
+      return `manual:${this.onvifManualKey(device)}`;
+    },
+    onvifStreamSelectionKey(device, stream) {
+      return `stream:${this.onvifStreamKey(device, stream)}`;
+    },
+    onvifIsSelected(key) {
+      return !!this.onvifSelectedStreams[key];
+    },
+    setOnvifSelection(key, selected) {
+      if (selected) {
+        this.$set(this.onvifSelectedStreams, key, true);
+      } else {
+        this.$delete(this.onvifSelectedStreams, key);
+      }
+    },
+    onvifSelectedTargets() {
+      const targets = [];
+
+      this.onvifDevices.forEach((device) => {
+        const manualKey = this.onvifManualSelectionKey(device);
+
+        if (this.onvifSelectedStreams[manualKey] && this.onvifShowManualRtsp(device)) {
+          targets.push({ type: 'manual', device, key: manualKey });
+        }
+
+        (device.streams || []).forEach((stream) => {
+          const streamKey = this.onvifStreamSelectionKey(device, stream);
+
+          if (this.onvifSelectedStreams[streamKey]) {
+            targets.push({ type: 'stream', device, stream, key: streamKey });
+          }
+        });
+      });
+
+      return targets;
+    },
+    onvifSelectedCount() {
+      return this.onvifSelectedTargets().length;
+    },
+    onvifWorkingSelectedCount() {
+      return this.onvifSelectedTargets().filter((target) => {
+        const draft =
+          target.type === 'manual'
+            ? this.onvifManualDraft(target.device)
+            : this.onvifStreamDraft(target.device, target.stream);
+
+        return !!draft?.rtspOk;
+      }).length;
     },
     onvifManualStateClass(device) {
       const draft = this.onvifManualDraft(device);
@@ -1851,6 +1922,7 @@ export default {
           this.$set(draft, 'thumbnail', result.thumbnail || '');
           this.$set(draft, 'thumbnailError', result.thumbnailError || '');
           this.$set(draft, 'rtspMessage', `Working RTSP found after ${result.tested} test(s)`);
+          this.setOnvifSelection(this.onvifStreamSelectionKey(device, stream), true);
           this.onvifTesting = null;
 
           return true;
@@ -1899,6 +1971,7 @@ export default {
           this.$set(draft, 'thumbnail', result.thumbnail || '');
           this.$set(draft, 'thumbnailError', result.thumbnailError || '');
           this.$set(draft, 'rtspMessage', `Working RTSP found after ${result.tested} test(s)`);
+          this.setOnvifSelection(this.onvifManualSelectionKey(device), true);
           this.onvifTesting = null;
 
           return true;
@@ -1968,20 +2041,60 @@ export default {
 
       return false;
     },
+    async addSelectedOnvifStreams() {
+      if (this.onvifAdding || this.onvifBulkAdding) {
+        return;
+      }
+
+      const targets = this.onvifSelectedTargets();
+
+      if (!targets.length) {
+        this.$toast.error('Select at least one stream');
+        return;
+      }
+
+      this.onvifBulkAdding = true;
+      let added = 0;
+      let failed = 0;
+
+      for (const target of targets) {
+        const ok =
+          target.type === 'manual'
+            ? await this.addOnvifManualCamera(target.device, { silentSuccess: true })
+            : await this.addOnvifCamera(target.device, target.stream, { silentSuccess: true });
+
+        if (ok) {
+          added++;
+          this.setOnvifSelection(target.key, false);
+        } else {
+          failed++;
+        }
+      }
+
+      this.onvifBulkAdding = false;
+
+      if (added) {
+        this.$toast.success(`Added ${added} camera${added === 1 ? '' : 's'}`);
+      }
+
+      if (failed) {
+        this.$toast.error(`${failed} selected stream${failed === 1 ? '' : 's'} could not be added`);
+      }
+    },
     async addIpcCamera() {
       if (this.onvifAdding) {
-        return;
+        return false;
       }
 
       const draft = this.validateIpcCamera();
 
       if (!draft) {
-        return;
+        return false;
       }
 
       if (this.cameras.some((camera) => camera.name === draft.name)) {
         this.$toast.error('Camera name already exists');
-        return;
+        return false;
       }
 
       this.onvifAdding = 'ipc';
@@ -1992,7 +2105,7 @@ export default {
         if (!ok) {
           this.$toast.error('No working RTSP URL found');
           this.onvifAdding = null;
-          return;
+          return false;
         }
       }
 
@@ -2027,20 +2140,23 @@ export default {
         await addCamera(camera);
         await this.cameraAdded(camera);
 
-        this.onvifDialog = false;
         this.$toast.success(`${this.$t('successfully_added_camera')}`);
+        this.onvifAdding = null;
+
+        return true;
       } catch (err) {
         console.log(err);
         this.$toast.error(err.response?.data?.message || err.message);
       }
 
       this.onvifAdding = null;
+      return false;
     },
-    async addOnvifManualCamera(device) {
+    async addOnvifManualCamera(device, options = {}) {
       const loadingKey = this.onvifManualLoadingKey(device);
 
       if (this.onvifAdding) {
-        return;
+        return false;
       }
 
       this.onvifAdding = loadingKey;
@@ -2051,13 +2167,13 @@ export default {
       if (!name) {
         this.$toast.error('Camera name is required');
         this.onvifAdding = null;
-        return;
+        return false;
       }
 
       if (this.cameras.some((camera) => camera.name === name)) {
         this.$toast.error('Camera name already exists');
         this.onvifAdding = null;
-        return;
+        return false;
       }
 
       if (!draft.rtspOk) {
@@ -2066,7 +2182,7 @@ export default {
         if (!ok) {
           this.$toast.error('No working RTSP URL found');
           this.onvifAdding = null;
-          return;
+          return false;
         }
       }
 
@@ -2101,20 +2217,26 @@ export default {
         await addCamera(camera);
         await this.cameraAdded(camera);
 
-        this.onvifDialog = false;
-        this.$toast.success(`${this.$t('successfully_added_camera')}`);
+        this.setOnvifSelection(this.onvifManualSelectionKey(device), false);
+        if (!options.silentSuccess) {
+          this.$toast.success(`${this.$t('successfully_added_camera')}`);
+        }
+        this.onvifAdding = null;
+
+        return true;
       } catch (err) {
         console.log(err);
         this.$toast.error(err.response?.data?.message || err.message);
       }
 
       this.onvifAdding = null;
+      return false;
     },
-    async addOnvifCamera(device, stream) {
+    async addOnvifCamera(device, stream, options = {}) {
       const loadingKey = `${device.ip}-${stream.token}`;
 
       if (this.onvifAdding) {
-        return;
+        return false;
       }
 
       this.onvifAdding = loadingKey;
@@ -2125,13 +2247,13 @@ export default {
       if (!name) {
         this.$toast.error('Camera name is required');
         this.onvifAdding = null;
-        return;
+        return false;
       }
 
       if (this.cameras.some((camera) => camera.name === name)) {
         this.$toast.error('Camera name already exists');
         this.onvifAdding = null;
-        return;
+        return false;
       }
 
       if (!draft.rtspOk) {
@@ -2140,7 +2262,7 @@ export default {
         if (!ok) {
           this.$toast.error('No working RTSP URL found');
           this.onvifAdding = null;
-          return;
+          return false;
         }
       }
 
@@ -2177,14 +2299,20 @@ export default {
         await addCamera(camera);
         await this.cameraAdded(camera);
 
-        this.onvifDialog = false;
-        this.$toast.success(`${this.$t('successfully_added_camera')}`);
+        this.setOnvifSelection(this.onvifStreamSelectionKey(device, stream), false);
+        if (!options.silentSuccess) {
+          this.$toast.success(`${this.$t('successfully_added_camera')}`);
+        }
+        this.onvifAdding = null;
+
+        return true;
       } catch (err) {
         console.log(err);
         this.$toast.error(err.response?.data?.message || err.message);
       }
 
       this.onvifAdding = null;
+      return false;
     },
     async cameraAdded(camera) {
       try {
@@ -2772,9 +2900,30 @@ div >>> .onvif-device-panel--added .v-expansion-panel-header {
   background: #e5dcff;
 }
 
+.onvif-device-pill--selected {
+  color: #246b3d;
+  background: #dff6e8;
+}
+
+.onvif-device-pill--working {
+  color: #246b3d;
+  background: #e8f8ee;
+}
+
 .onvif-device-pill--manual {
   color: #2d5d86;
   background: #e4f1ff;
+}
+
+.onvif-bulk-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(46, 174, 95, 0.24);
+  border-radius: 6px;
+  background: #f7fcf8;
 }
 
 .onvif-auth-box {
@@ -2872,6 +3021,23 @@ div >>> .onvif-manual-card {
   justify-content: space-between;
   gap: 8px;
   margin-bottom: 6px;
+}
+
+.onvif-stream-title-main {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+}
+
+div >>> .onvif-stream-select {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0;
+}
+
+div >>> .onvif-stream-select .v-input__slot {
+  margin: 0;
 }
 
 .onvif-stream-badge,
