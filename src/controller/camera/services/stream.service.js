@@ -14,8 +14,10 @@ import Socket from '../../../api/socket.js';
 const { log } = LoggerService;
 const DENSE_STREAM_MAX_WIDTH = 640;
 const DENSE_STREAM_MAX_HEIGHT = 360;
-const DENSE_STREAM_MAX_FPS = 10;
-const DENSE_STREAM_MAX_BITRATE = 180;
+const DENSE_STREAM_MAX_FPS = 20;
+const DENSE_STREAM_MAX_BITRATE = 256;
+const STREAM_RESTART_WINDOW = 60 * 1000;
+const STREAM_RESTART_LIMIT = 3;
 
 const fitDenseResolution = (resolution) => {
   const match = String(resolution || '').match(/^(\d+)x(\d+)$/);
@@ -43,6 +45,8 @@ export default class StreamService {
   #prebufferService;
   #sessionService;
   #mediaService;
+  #restartAttempts = 0;
+  #lastRestartAttemptAt = 0;
 
   streamSession = null;
   destroyed = false;
@@ -79,11 +83,8 @@ export default class StreamService {
     const videoConfig = cameraUtils.generateVideoConfig(this.#camera.videoConfig);
     const streamOptions = Socket.getStreamOptions(this.cameraName);
     const useDenseOutput = streamOptions.mode === 'camview' && streamOptions.dense;
-    const useSubStream = streamOptions.mode === 'camview' && videoConfig.subSource;
 
-    let ffmpegInput = [
-      ...cameraUtils.generateInputSource(videoConfig, useSubStream ? videoConfig.subSource : false).split(/\s+/),
-    ];
+    let ffmpegInput = [...cameraUtils.generateInputSource(videoConfig).split(/\s+/)];
     ffmpegInput = cameraUtils.checkDeprecatedFFmpegArguments(this.#mediaService.codecs.ffmpegVersion, ffmpegInput);
 
     let prebuffer = null;
@@ -191,6 +192,7 @@ export default class StreamService {
       let errors = [];
 
       this.streamSession.stdout.on('data', (data) => {
+        this.#restartAttempts = 0;
         Socket.io.to(`stream/${this.cameraName}`).emit(this.cameraName, data);
       });
 
@@ -210,8 +212,21 @@ export default class StreamService {
         this.streamSession = null;
 
         if (!this.destroyed && Socket.hasStreamClients(this.cameraName)) {
-          log.warn('Stream exited while clients are connected. Restarting stream...', this.cameraName, 'streams');
-          setTimeout(() => this.start(), 2000);
+          const now = Date.now();
+
+          if (now - this.#lastRestartAttemptAt > STREAM_RESTART_WINDOW) {
+            this.#restartAttempts = 0;
+          }
+
+          this.#lastRestartAttemptAt = now;
+          this.#restartAttempts++;
+
+          if (this.#restartAttempts <= STREAM_RESTART_LIMIT) {
+            log.debug('Stream exited while clients are connected. Restarting stream...', this.cameraName, 'streams');
+            setTimeout(() => this.start(), 2000 * this.#restartAttempts);
+          } else {
+            log.warn('Stream exited repeatedly. Automatic restart paused.', this.cameraName, 'streams');
+          }
         }
 
         /*if (!prebuffer) {
@@ -239,6 +254,7 @@ export default class StreamService {
     }
 
     log.info('Restart stream session..', this.cameraName);
+    this.#restartAttempts = 0;
 
     if (this.streamSession) {
       this.stop();

@@ -130,6 +130,10 @@ export default {
       type: String,
       default: 'default',
     },
+    streamStartDelay: {
+      type: Number,
+      default: 0,
+    },
     title: Boolean,
     titlePosition: {
       type: String,
@@ -190,6 +194,10 @@ export default {
     this.timeout = this.camera.settings.streamTimeout || 60;
 
     if (this.stream) {
+      if (this.streamStartDelay > 0) {
+        await timeout(this.streamStartDelay);
+      }
+
       this.startStream();
     } else if (this.snapshot || this.refreshSnapshot) {
       this.startSnapshot();
