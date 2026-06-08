@@ -60,6 +60,19 @@ export default class MediaService {
       let cp = spawn(ConfigService.ui.options.videoProcessor, arguments_, {
         env: process.env,
       });
+      let settled = false;
+      let probeTimeout;
+
+      const finish = () => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        clearTimeout(probeTimeout);
+        cp = null;
+        resolve(this.codecs);
+      };
 
       const stderr = readline.createInterface({
         input: cp.stderr,
@@ -98,12 +111,18 @@ export default class MediaService {
         this.codecs.probe = true;
         log.debug(this.codecs, this.cameraName);
 
-        cp = null;
-
-        resolve(this.codecs);
+        finish();
       });
 
-      setTimeout(() => {
+      cp.on('error', (error) => {
+        this.codecs.probe = false;
+        this.codecs.timedout = true;
+        log.error(`Can not start FFmpeg probe: ${error.message}`, this.cameraName, 'ffmpeg');
+
+        finish();
+      });
+
+      probeTimeout = setTimeout(() => {
         if (cp) {
           log.warn('Can not determine stream codecs, probe timed out', this.cameraName, 'ffmpeg');
 

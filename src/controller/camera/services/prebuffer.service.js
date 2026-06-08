@@ -573,6 +573,11 @@ export default class PrebufferService {
       errors.push(data.toString().replace(/(\r\n|\n|\r)/gm, ' - '));
     });
 
+    cp.on('error', (error) => {
+      errors.unshift(`Can not start prebuffer process: ${error.message}`);
+      log.error(errors.join(' - '), this.cameraName, 'prebuffer');
+    });
+
     cp.on('exit', (code, signal) => {
       if (code === 1 || (!this.killed && errors.length > 0)) {
         errors.unshift(`FFmpeg prebuffer process exited with error! (${signal})`);

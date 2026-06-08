@@ -378,6 +378,12 @@ export default class VideoAnalysisService {
       errors.push(data.toString().replace(/(\r\n|\n|\r)/gm, ' '));
     });
 
+    cp.on('error', (error) => {
+      isActive = false;
+      errors.unshift(`Can not start videoanalysis process: ${error.message}`);
+      log.error(errors.join(' - '), this.cameraName, 'videoanalysis');
+    });
+
     cp.on('exit', (code, signal) => {
       isActive = false;
 

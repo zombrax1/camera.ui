@@ -201,6 +201,12 @@ export default class StreamService {
         errors.push(data.toString().replace(/(\r\n|\n|\r)/gm, ' '));
       });
 
+      this.streamSession.on('error', (error) => {
+        errors.unshift(`Can not start stream process: ${error.message}`);
+        log.error(errors.join(' - '), this.cameraName, 'streams');
+        this.streamSession = null;
+      });
+
       this.streamSession.on('exit', (code, signal) => {
         if (code === 1) {
           errors.unshift(`Stream exited with error! (${signal})`);

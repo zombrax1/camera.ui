@@ -10,6 +10,141 @@ let cameraUi = null;
 let isClosing = false;
 
 const resolveAppRoot = () => (app.isPackaged ? path.join(process.resourcesPath, 'app') : path.resolve(__dirname, '..'));
+const ffmpegBinaryName = process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg';
+
+const escapeHtml = (value = '') =>
+  String(value).replace(/["&'<>]/g, (character) => {
+    switch (character) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      case String.fromCodePoint(39):
+        return '&#39;';
+      default:
+        return character;
+    }
+  });
+
+const createStartupHtml = ({ title, message, detail = '', state = 'loading' }) => {
+  const isError = state === 'error';
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+  <title>${escapeHtml(title)}</title>
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      background: #101418;
+      color: #f4f7fb;
+      font-family: "Segoe UI", Arial, sans-serif;
+    }
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    main {
+      width: min(520px, calc(100% - 48px));
+      text-align: center;
+    }
+    .mark {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 22px;
+      border-radius: 50%;
+      border: 4px solid ${isError ? '#ff6b6b' : 'rgba(255,255,255,0.24)'};
+      border-top-color: ${isError ? '#ff6b6b' : '#5cc8ff'};
+      ${isError ? '' : 'animation: spin 900ms linear infinite;'}
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: 25px;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+    p {
+      margin: 0;
+      color: #b7c0ca;
+      font-size: 15px;
+      line-height: 1.5;
+    }
+    pre {
+      margin: 22px 0 0;
+      padding: 14px;
+      max-height: 260px;
+      overflow: auto;
+      text-align: left;
+      color: #f8d7da;
+      background: rgba(255,255,255,0.08);
+      border-radius: 6px;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark"></div>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(message)}</p>
+    ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ''}
+  </main>
+</body>
+</html>`;
+};
+
+const loadStartupPage = async (content) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+
+  await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(createStartupHtml(content))}`);
+};
+
+const resolveBundledFfmpegPath = (appRoot) => {
+  const candidates = app.isPackaged
+    ? [
+        path.join(process.resourcesPath, 'ffmpeg', ffmpegBinaryName),
+        path.join(appRoot, 'node_modules', 'ffmpeg-for-homebridge', ffmpegBinaryName),
+      ]
+    : [path.join(appRoot, 'node_modules', 'ffmpeg-for-homebridge', ffmpegBinaryName)];
+
+  return candidates.find((candidate) => fs.pathExistsSync(candidate));
+};
+
+const configureVideoProcessor = (appRoot, configuredVideoProcessor) => {
+  const bundledFfmpegPath = resolveBundledFfmpegPath(appRoot);
+
+  if (bundledFfmpegPath) {
+    process.env.CUI_FFMPEG_PATH = bundledFfmpegPath;
+    return;
+  }
+
+  if (!configuredVideoProcessor && app.isPackaged) {
+    throw new Error(
+      `Bundled FFmpeg was not found. Expected ${path.join(
+        process.resourcesPath,
+        'ffmpeg',
+        ffmpegBinaryName
+      )}. Reinstall camera.ui or check whether Windows security software removed ffmpeg.exe.`
+    );
+  }
+};
 
 const setCameraUiEnvironment = (appRoot, storagePath) => {
   process.env.NTBA_FIX_319 = '1';
@@ -60,6 +195,9 @@ const startCameraUi = async () => {
   await ensureStorage(storagePath);
   setCameraUiEnvironment(appRoot, storagePath);
 
+  const configJson = fs.readJSONSync(process.env.CUI_STORAGE_CONFIG_FILE, { throws: false });
+  configureVideoProcessor(appRoot, configJson?.options?.videoProcessor);
+
   const [{ default: LoggerService }, { default: ConfigService }, { default: Interface }] = await Promise.all([
     importFromApp(appRoot, 'src/services/logger/logger.service.js'),
     importFromApp(appRoot, 'src/services/config/config.service.js'),
@@ -67,7 +205,6 @@ const startCameraUi = async () => {
   ]);
 
   const logger = new LoggerService();
-  const configJson = fs.readJSONSync(process.env.CUI_STORAGE_CONFIG_FILE, { throws: false });
   const config = new ConfigService(configJson);
   cameraUi = new Interface(logger, config);
 
@@ -88,7 +225,7 @@ const startCameraUi = async () => {
   return config.ui.port;
 };
 
-const createWindow = async (port) => {
+const createWindow = () => {
   mainWindow = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -111,7 +248,9 @@ const createWindow = async (port) => {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+};
 
+const loadApplication = async (port) => {
   await mainWindow.loadURL(`http://127.0.0.1:${port}`);
 };
 
@@ -142,12 +281,28 @@ if (!gotLock) {
   });
 
   app.whenReady().then(async () => {
+    createWindow();
+    await loadStartupPage({
+      title: 'Starting camera.ui',
+      message: 'Loading the camera server. This can take a few seconds after install.',
+    });
+
     try {
       const port = await startCameraUi();
-      await createWindow(port);
+      await loadStartupPage({
+        title: 'Opening camera.ui',
+        message: `Connecting to local server on port ${port}.`,
+      });
+      await loadApplication(port);
     } catch (error) {
-      dialog.showErrorBox('camera.ui failed to start', error?.stack || String(error));
-      app.quit();
+      console.error(error);
+      await loadStartupPage({
+        title: 'camera.ui failed to start',
+        message: 'Startup stopped before the camera server was ready.',
+        detail: error?.stack || String(error),
+        state: 'error',
+      });
+      dialog.showErrorBox('camera.ui failed to start', error?.message || String(error));
     }
   });
 

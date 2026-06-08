@@ -1,6 +1,7 @@
 /* eslint-disable unicorn/prefer-number-properties */
 'use-strict';
 
+import fs from 'fs';
 import ffmpegPath from 'ffmpeg-for-homebridge';
 
 export const uiDefaults = {
@@ -65,7 +66,20 @@ export const permissionLevels = [
   'settings:recordings:edit',
 ];
 
-export const defaultVideoProcess = ffmpegPath || 'ffmpeg';
+const resolveDefaultVideoProcess = () => {
+  const candidates = [process.env.CUI_FFMPEG_PATH, ffmpegPath].filter(Boolean);
+  const existingPath = candidates.find((candidate) => {
+    try {
+      return fs.existsSync(candidate);
+    } catch {
+      return false;
+    }
+  });
+
+  return existingPath || 'ffmpeg';
+};
+
+export const defaultVideoProcess = resolveDefaultVideoProcess();
 
 export const minNodeVersion = '16.12.0';
 

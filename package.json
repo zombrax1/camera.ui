@@ -1,6 +1,6 @@
 {
   "name": "camera.ui",
-  "version": "1.1.23",
+  "version": "1.1.24",
   "description": "NVR like user interface for RTSP capable cameras.",
   "author": "SeydX (https://github.com/SeydX/camera.ui)",
   "scripts": {
@@ -91,6 +91,12 @@
     "directories": {
       "output": "dist"
     },
+    "extraResources": [
+      {
+        "from": "node_modules/ffmpeg-for-homebridge/ffmpeg.exe",
+        "to": "ffmpeg/ffmpeg.exe"
+      }
+    ],
     "files": [
       "electron/**/*",
       "src/**/*",
@@ -98,6 +104,7 @@
       "interface/**/*",
       "images/logo.png",
       "package.json",
+      "!node_modules/ffmpeg-for-homebridge/ffmpeg.exe",
       "!node_modules/ffmpeg-for-homebridge/.build/**",
       "!node_modules/**/*.map"
     ],
