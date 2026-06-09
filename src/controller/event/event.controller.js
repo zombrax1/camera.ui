@@ -23,6 +23,12 @@ const { log } = LoggerService;
 
 const nanoid = customAlphabet('1234567890abcdef', 10);
 
+const canStoreRecording = (diskSpace = {}) => {
+  const available = Number(diskSpace.available);
+
+  return !Number.isFinite(available) || available >= 1;
+};
+
 const stringIsAValidUrl = (s) => {
   try {
     let url = new URL(s);
@@ -148,12 +154,18 @@ export default class EventController {
             }
 
             if (allowStream) {
-              const diskSpace = Socket.diskSpace;
-              const allowRecording = Boolean(diskSpace.available >= 1) || Boolean(diskSpace.available === null);
+              if (recordingSettings.active && !Number.isFinite(Number(Socket.diskSpace?.available))) {
+                await Socket.handleDiskUsage();
+              }
+
+              const diskSpace = Socket.diskSpace || {};
+              const allowRecording = canStoreRecording(diskSpace);
+              motionInfo.storing = Boolean(recordingSettings.active && allowRecording);
 
               if (!allowRecording) {
+                const available = Number(diskSpace.available);
                 log.warn(
-                  `The available disk space is less than 1 GB (${diskSpace.available.toFixed(
+                  `The available disk space is less than 1 GB (${available.toFixed(
                     2
                   )} GB)! Please free up disk space to be able to create new recordings!`,
                   cameraName

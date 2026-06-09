@@ -802,8 +802,11 @@ export default class MotionController {
         } else {
           result = {
             error: false,
-            message: 'Handling through extern controller..',
+            message:
+              'Handling through extern controller. Enable "Record on movement through UI" on this camera to save local camera.ui recordings.',
           };
+
+          log.info(result.message, camera.name);
         }
       }
     } else {

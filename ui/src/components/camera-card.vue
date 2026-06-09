@@ -35,7 +35,7 @@
         // Stream Canvas / Img Container
         .tw-w-full.tw-h-full(@click="!noLink && !blank ? $router.push(`cameras/${camera.name}`) : null" :class="!noLink && !blank ? 'tw-cursor-pointer' : ''")
           .tw-bg-black.tw-absolute.tw-inset-0(v-if="loading || false" style="border-radius: 10px;")
-          canvas.main.tw-w-full.tw-h-full(v-if="stream" ref="streamBox" width="1280" height="720")
+          canvas.main.tw-w-full.tw-h-full(v-if="stream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
           .tw-w-full.tw-h-full(v-else)
             .img-shadow-overlay
             v-img.main.tw-w-full.tw-h-full(:src="imgSource")
@@ -165,6 +165,18 @@ export default {
     streamWatchdogInterval: null,
     timeout: 60,
   }),
+
+  computed: {
+    canvasHeight() {
+      return this.denseStream ? 360 : 720;
+    },
+    canvasWidth() {
+      return this.denseStream ? 640 : 1280;
+    },
+    streamVideoBufferSize() {
+      return this.denseStream ? 512 * 1024 : 1024 * 1024;
+    },
+  },
 
   async mounted() {
     //document.addEventListener('touchstart', this.onTouchStart, false);
@@ -403,7 +415,7 @@ export default {
             audio: true,
             //disableWebAssembly: true,
             pauseWhenHidden: false,
-            videoBufferSize: 1024 * 1024,
+            videoBufferSize: this.streamVideoBufferSize,
             onSourcePaused: () => {
               this.play = false;
             },

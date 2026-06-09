@@ -2116,7 +2116,7 @@ export default {
         model: `IP Camera ${draft.ip}`,
         serialNumber: draft.ip,
         motionTimeout: 15,
-        recordOnMovement: false,
+        recordOnMovement: true,
         prebuffering: false,
         videoConfig: {
           source,
@@ -2193,7 +2193,7 @@ export default {
         model: device.model,
         serialNumber: device.serialNumber,
         motionTimeout: 15,
-        recordOnMovement: false,
+        recordOnMovement: true,
         prebuffering: false,
         videoConfig: {
           source,
@@ -2275,7 +2275,7 @@ export default {
         model: device.model,
         serialNumber: device.serialNumber,
         motionTimeout: 15,
-        recordOnMovement: false,
+        recordOnMovement: true,
         prebuffering: false,
         videoConfig: {
           source,
@@ -2549,15 +2549,12 @@ export default {
       this.prebufferingStates[this.camera.name].motionLoading = true;
 
       try {
-        if (state) {
-          await startMotion(this.camera.name);
-        } else {
-          await resetMotion(this.camera.name);
-        }
-        this.$toast.success(this.$t('successfull'));
+        const response = state ? await startMotion(this.camera.name) : await resetMotion(this.camera.name);
+
+        this.$toast.success(response.data?.message || this.$t('successfull'));
       } catch (err) {
         console.log(err);
-        this.$toast.error(err.message);
+        this.$toast.error(err.response?.data?.message || err.message);
       }
 
       this.prebufferingStates[this.camera.name].motionLoading = false;

@@ -125,19 +125,26 @@ export default {
   async mounted() {
     try {
       const cameras = await getCameras();
+      const enrichedCameras = await Promise.all(
+        cameras.data.result.map(async (camera) => {
+          const [settings, lastNotification] = await Promise.all([
+            getCameraSettings(camera.name),
+            getNotifications(`?cameras=${camera.name}&pageSize=5`),
+          ]);
 
-      for (const camera of cameras.data.result) {
-        const settings = await getCameraSettings(camera.name);
-        camera.settings = settings.data;
-        camera.favourite = camera.settings.camview.favourite;
-        camera.live = camera.settings.camview.live || false;
-        camera.refreshTimer = camera.settings.camview.refreshTimer || 60;
-        const lastNotification = await getNotifications(`?cameras=${camera.name}&pageSize=5`);
-        camera.lastNotification = lastNotification.data.result.length > 0 ? lastNotification.data.result[0] : false;
-      }
+          return {
+            ...camera,
+            settings: settings.data,
+            favourite: settings.data.camview.favourite,
+            live: settings.data.camview.live || false,
+            refreshTimer: settings.data.camview.refreshTimer || 60,
+            lastNotification: lastNotification.data.result.length > 0 ? lastNotification.data.result[0] : false,
+          };
+        })
+      );
 
-      this.allCameras = cameras.data.result;
-      this.cameras = cameras.data.result.filter((camera) => camera.favourite);
+      this.allCameras = enrichedCameras;
+      this.cameras = enrichedCameras.filter((camera) => camera.favourite);
 
       this.loading = false;
 

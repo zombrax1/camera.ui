@@ -326,9 +326,9 @@ export const resetMotion = async (req, res) => {
       });
     }
 
-    MotionController.triggerMotion(camera.name, false);
+    const result = await MotionController.triggerMotion(camera.name, false);
 
-    res.status(204).send({});
+    res.status(result.error ? 500 : 200).send(result);
   } catch (error) {
     res.status(500).send({
       statusCode: 500,
@@ -412,9 +412,9 @@ export const startMotion = async (req, res) => {
       });
     }
 
-    MotionController.triggerMotion(camera.name, true);
+    const result = await MotionController.triggerMotion(camera.name, true);
 
-    res.status(204).send({});
+    res.status(result.error ? 500 : 200).send(result);
   } catch (error) {
     res.status(500).send({
       statusCode: 500,

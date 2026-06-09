@@ -428,15 +428,27 @@ export const getLog = async (req, res) => {
   try {
     const logPath = ConfigService.logFile;
     const truncateSize = 200000;
+    await fs.ensureFile(logPath);
+
     const logStats = await fs.stat(logPath);
-    const logStartPosition = logStats.size - truncateSize;
-    const logBuffer = Buffer.alloc(truncateSize);
+    const logStartPosition = Math.max(0, logStats.size - truncateSize);
+    const readSize = Math.min(logStats.size, truncateSize);
+
+    if (readSize === 0) {
+      return res.status(200).send('');
+    }
 
     const fd = await fs.open(logPath, 'r');
-    // eslint-disable-next-line no-unused-vars
-    const { bytesRead, buffer } = await fs.read(fd, logBuffer, 0, truncateSize, logStartPosition);
+    const logBuffer = Buffer.alloc(readSize);
 
-    res.status(200).send(buffer.toString());
+    try {
+      // eslint-disable-next-line no-unused-vars
+      const { bytesRead, buffer } = await fs.read(fd, logBuffer, 0, readSize, logStartPosition);
+
+      res.status(200).send(buffer.toString());
+    } finally {
+      await fs.close(fd);
+    }
   } catch (error) {
     res.status(500).send({
       statusCode: 500,

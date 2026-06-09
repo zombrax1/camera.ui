@@ -266,7 +266,7 @@ export default {
       cam: {
         name: '',
         motionTimeout: 15,
-        recordOnMovement: false,
+        recordOnMovement: true,
         prebuffering: false,
         videoConfig: {
           source: '',
