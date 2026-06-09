@@ -27,33 +27,33 @@
 
         // Offline
         .offline.tw-flex.tw-flex-col.tw-justify-center.tw-items-center(v-if="!loading && offline")
-          v-icon.tw-text-white(x-large v-if="!stream") {{ icons['mdiVideoOff'] }}
-          v-btn.tw-text-white.tw-mt-3(v-if="stream" small color="var(--cui-primary)" @click="refreshStream(false)" fab)
+          v-icon.tw-text-white(x-large v-if="!effectiveStream") {{ icons['mdiVideoOff'] }}
+          v-btn.tw-text-white.tw-mt-3(v-if="effectiveStream" small color="var(--cui-primary)" @click="refreshStream(false)" fab)
             v-icon.tw-text-white {{ icons['mdiReload'] }}
           .tw-font-bold.tw-text-xs.tw-mt-2.text-muted {{ $t('offline') }}
 
         // Stream Canvas / Img Container
         .tw-w-full.tw-h-full(@click="!noLink && !blank ? $router.push(`cameras/${camera.name}`) : null" :class="!noLink && !blank ? 'tw-cursor-pointer' : ''")
           .tw-bg-black.tw-absolute.tw-inset-0(v-if="loading || false" style="border-radius: 10px;")
-          canvas.main.tw-w-full.tw-h-full(v-if="stream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
+          canvas.main.tw-w-full.tw-h-full(v-if="effectiveStream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
           .tw-w-full.tw-h-full(v-else)
             .img-shadow-overlay
             v-img.main.tw-w-full.tw-h-full(:src="imgSource")
 
         // Timer
-        .tw-z-10.tw-absolute.tw-bottom-0.tw-left-0.tw-right-0(v-if="refreshSnapshot" :style="`bottom: ${stream && !hideController ? '50px' : '10px'}`")
+        .tw-z-10.tw-absolute.tw-bottom-0.tw-left-0.tw-right-0(v-if="refreshSnapshot || streamFallbackSnapshot" :style="`bottom: ${effectiveStream && !hideController ? '50px' : '10px'}`")
           .tw-flex.tw-justify-end
             .tw-flex.tw-justify-center.tw-items-center.video-card-timer.tw-text-center.tw-mr-3.tw-mb-3(ref="snapshotTimer") 0
 
         // Notifications
-        .tw-z-10.tw-absolute.tw-left-0.tw-right-0.tw-cursor-pointer(@click="index = 0" v-if="!hideNotifications && notifications && !loading && !offline" :style="`bottom: ${stream && !hideController ? '50px' : '10px'}`")
+        .tw-z-10.tw-absolute.tw-left-0.tw-right-0.tw-cursor-pointer(@click="index = 0" v-if="!hideNotifications && notifications && !loading && !offline" :style="`bottom: ${effectiveStream && !hideController ? '50px' : '10px'}`")
           .tw-flex.tw-justify-center
             .tw-flex.tw-flex-col.tw-justify-center.tw-items-center.video-card-notifications.tw-text-center
               .tw-text-white {{ $t("last_notification") + ": " }}
               .tw-text-white.text-muted {{ camera.lastNotification.time }}
 
         // Video Controller
-        .tw-z-10.tw-absolute.tw-bottom-0.tw-left-0.tw-right-0(v-if="stream && !hideController")
+        .tw-z-10.tw-absolute.tw-bottom-0.tw-left-0.tw-right-0(v-if="effectiveStream && !hideController")
           .tw-flex.tw-content-end.tw-items-center.tw-justify-between.video-card-control(v-if="!loading && !offline")
             .tw-block.tw-p-2
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="handleStartStop") {{ !play ? icons['mdiPlay'] : icons['mdiPause'] }}
@@ -124,6 +124,10 @@ export default {
     notifications: Boolean,
     refreshSnapshot: Boolean,
     snapshot: Boolean,
+    startDelay: {
+      type: Number,
+      default: 0,
+    },
     status: Boolean,
     stream: Boolean,
     streamMode: {
@@ -156,17 +160,22 @@ export default {
     loading: true,
     audio: false,
     offline: false,
+    destroyed: false,
     play: false,
     player: null,
     lastStreamDataAt: 0,
     snapshotTimerTimeout: null,
     snapshotTimeout: null,
+    streamFallbackSnapshot: false,
     streamTimeout: null,
     streamWatchdogInterval: null,
     timeout: 60,
   }),
 
   computed: {
+    effectiveStream() {
+      return this.stream && !this.streamFallbackSnapshot;
+    },
     canvasHeight() {
       return this.denseStream ? 360 : 720;
     },
@@ -200,6 +209,14 @@ export default {
     }
 
     this.timeout = this.camera.settings.streamTimeout || 60;
+
+    if (this.startDelay > 0) {
+      await timeout(this.startDelay);
+
+      if (this.destroyed) {
+        return;
+      }
+    }
 
     if (this.stream) {
       this.startStream();
@@ -377,7 +394,10 @@ export default {
           }
         } else {
           this.offline = true;
-          this.$toast.error(`${this.camera.name}: ${this.$t('offline')}`);
+
+          if (!this.streamFallbackSnapshot) {
+            this.$toast.error(`${this.camera.name}: ${this.$t('offline')}`);
+          }
         }
       } catch (err) {
         console.log(this.camera.name, err);
@@ -387,7 +407,7 @@ export default {
         this.offline = true;
       }
 
-      if (this.refreshSnapshot) {
+      if (this.refreshSnapshot || this.streamFallbackSnapshot) {
         await timeout(10);
 
         this.snapshotTimer();
@@ -404,6 +424,8 @@ export default {
     },
     async startStream() {
       try {
+        this.streamFallbackSnapshot = false;
+
         const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
 
         if (status.data.status === 'ONLINE') {
@@ -447,30 +469,19 @@ export default {
 
           this.streamTimeout = setTimeout(() => {
             if (this.loading) {
-              this.loading = false;
-              this.offline = true;
-
-              this.stopStream();
-              this.$toast.warning(`${this.camera.name}: ${this.$t('timeout')}`);
+              this.handleStreamFailure(`${this.camera.name}: ${this.$t('timeout')}`);
             }
           }, this.timeout * 1000);
         } else {
-          this.stopStream();
-
-          this.offline = true;
-          this.$toast.error(`${this.camera.name}: ${this.$t('offline')}`);
+          this.handleStreamFailure(`${this.camera.name}: ${this.$t('offline')}`, 'error');
         }
       } catch (err) {
-        this.stopStream();
-
         console.log(this.camera.name, err);
-        this.$toast.error(`${this.camera.name}: ${err.message}`);
-
-        this.loading = false;
-        this.offline = true;
+        this.handleStreamFailure(`${this.camera.name}: ${err.message}`, 'error');
       }
     },
     destroy() {
+      this.destroyed = true;
       this.stopStream();
       this.stopSnapshot();
 
@@ -505,6 +516,29 @@ export default {
       this.stopStreamWatchdog();
 
       this.$socket.client.emit('leave_stream', this.streamSocketPayload());
+    },
+    handleStreamFailure(message, level = 'warning') {
+      this.stopStream();
+
+      if (this.streamMode === 'camview') {
+        this.streamFallbackSnapshot = true;
+        this.loading = true;
+        this.offline = false;
+
+        if (message) {
+          this.$toast[level] ? this.$toast[level](message) : this.$toast.warning(message);
+        }
+
+        this.startSnapshot();
+        return;
+      }
+
+      this.loading = false;
+      this.offline = true;
+
+      if (message) {
+        this.$toast[level] ? this.$toast[level](message) : this.$toast.warning(message);
+      }
     },
     startStreamWatchdog() {
       this.stopStreamWatchdog();

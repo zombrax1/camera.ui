@@ -715,6 +715,10 @@ export default class MotionController {
 
       const settingsDatabase = await Database.interfaceDB.chain.get('settings').cloneDeep().value();
       const cameraSettings = settingsDatabase?.cameras.find((cam) => cam.name === cameraName);
+      const recordingSettings = settingsDatabase?.recordings || {};
+      const recActive = recordingSettings.active || false;
+      const recTimer = recordingSettings.timer || 10;
+      const shouldHandleInternally = camera.recordOnMovement || recActive;
       const atHome = settingsDatabase?.general?.atHome || false;
       const cameraExcluded = (settingsDatabase?.general?.exclude || []).includes(camera.name);
 
@@ -730,14 +734,14 @@ export default class MotionController {
       } else {
         result = {
           error: false,
-          message: `Handling through ${camera.recordOnMovement ? 'intern' : 'extern'} controller..`,
+          message: `Handling through ${shouldHandleInternally ? 'intern' : 'extern'} controller..`,
         };
 
         log.debug(result, camera.name);
 
         MotionController.#controller.emit('motion', camera.name, triggerType, state, event); // used for extern controller, like Homebridge
 
-        if (camera.recordOnMovement) {
+        if (shouldHandleInternally) {
           const mqttClient = MotionController.mqttClient;
 
           if (mqttClient?.connected && cameraSettings?.mqttTopic) {
@@ -753,15 +757,6 @@ export default class MotionController {
           } else {
             log.debug('No MQTT Publish Topic defined, skip MQTT (motion)..');
           }
-
-          const recordingSettings = await Database.interfaceDB.chain
-            .get('settings')
-            .get('recordings')
-            .cloneDeep()
-            .value();
-
-          const recActive = recordingSettings.active || false;
-          const recTimer = recordingSettings.timer || 10;
 
           const timeout = MotionController.#motionTimers.get(camera.name);
           let timeoutConfig =
@@ -803,7 +798,7 @@ export default class MotionController {
           result = {
             error: false,
             message:
-              'Handling through extern controller. Enable "Record on movement through UI" on this camera to save local camera.ui recordings.',
+              'Handling through extern controller. Enable global Recordings or "Record on movement through UI" on this camera to save local camera.ui recordings.',
           };
 
           log.info(result.message, camera.name);

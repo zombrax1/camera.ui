@@ -37,7 +37,7 @@
   #container.grid-stack
     .grid-stack-item(v-for="(camera, index) in cameras" :gs-id="index" :key="camera.name")
       .grid-stack-item-content
-        VideoCard(:ref="camera.name" :camera="camera" title titlePosition="inner-top" status :stream="camera.live" :refreshSnapshot="!camera.live" :notifications="Boolean(camera.lastNotification)" :denseStream="denseStream" streamMode="camview" blank)
+        VideoCard(:ref="camera.name" :camera="camera" title titlePosition="inner-top" status :stream="shouldUseLiveStream(camera, index)" :refreshSnapshot="!shouldUseLiveStream(camera, index)" :notifications="Boolean(camera.lastNotification)" :denseStream="denseStream" streamMode="camview" :startDelay="cameraStartDelay(index)" blank)
     .tw-flex.tw-justify-center.tw-items-center.tw-h-full.tw-w-full(v-if="!cameras.length")
       span.text-muted {{ $t('no_cameras') }} :(
 
@@ -74,6 +74,8 @@ const DEFAULT_GRID_COLUMNS = 12;
 const DEFAULT_GRID_ROWS = 12;
 const DENSE_GRID_COLUMNS = 8;
 const DENSE_GRID_ROWS = 16;
+const DENSE_LIVE_STREAM_LIMIT = 4;
+const CAMERA_START_DELAY_MS = 150;
 const LAYOUT_PRESET_STORAGE_KEY = 'camview-layout-preset';
 const LAYOUT_PRESETS = [
   { value: 'auto', label: 'Auto', icon: 'mdiAutoFix' },
@@ -209,6 +211,20 @@ export default {
       }
 
       this.fullscreen = false;
+    },
+    cameraStartDelay(index) {
+      return Math.min(index * CAMERA_START_DELAY_MS, 2500);
+    },
+    shouldUseLiveStream(camera, index) {
+      if (!camera.live) {
+        return false;
+      }
+
+      if (!this.denseStream) {
+        return true;
+      }
+
+      return index < DENSE_LIVE_STREAM_LIMIT;
     },
     fullscreenHandler() {
       if (document.fullscreenElement) {

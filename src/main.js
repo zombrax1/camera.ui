@@ -3,6 +3,8 @@
 import compareVersions from 'compare-versions';
 import { EventEmitter } from 'events';
 
+const CAMERA_SETUP_CONCURRENCY = 4;
+
 export default class Interface extends EventEmitter {
   #server;
   #socket;
@@ -12,6 +14,7 @@ export default class Interface extends EventEmitter {
 
     this.log = log;
     this.config = config;
+    this.setMaxListeners(Math.max(this.getMaxListeners(), (this.config.ui?.cameras?.length || 0) + 5));
 
     this.cameraController = null;
     this.eventController = null;
@@ -65,30 +68,50 @@ export default class Interface extends EventEmitter {
     this.log.debug('Configuring camera controller...');
     this.cameraController = new (await import('./controller/camera/camera.controller.js')).default(this);
 
-    await Promise.all(
-      [...this.cameraController.entries()].map(async (controller) => {
-        this.log.info('Setting up camera, please be patient...', controller[0]);
-
-        await controller[1].media.probe();
-
-        if (controller[1].options?.disable) {
-          return;
-        }
-
-        if (controller[1].options.prebuffering) {
-          await controller[1].prebuffer.start();
-        }
-
-        if (controller[1].options.videoanalysis.active) {
-          await controller[1].videoanalysis.start();
-        }
-
-        //await controller[1].stream.configureStreamOptions();
-      })
-    );
-
     this.log.debug('Starting interface...');
     this.#server.listen(this.config.ui.port);
+
+    this.#setupCameras().catch((error) => {
+      this.log.info('An error occurred while setting up cameras', 'Interface');
+      this.log.error(error, 'Interface');
+    });
+  }
+
+  async #setupCameras() {
+    const controllers = [...this.cameraController.entries()];
+    let index = 0;
+    const workerCount = Math.min(CAMERA_SETUP_CONCURRENCY, controllers.length);
+
+    const setupNextCamera = async () => {
+      while (index < controllers.length) {
+        const [cameraName, controller] = controllers[index++];
+
+        try {
+          this.log.info('Setting up camera, please be patient...', cameraName);
+
+          await controller.media.probe();
+
+          if (controller.options?.disable) {
+            continue;
+          }
+
+          if (controller.options.prebuffering) {
+            await controller.prebuffer.start();
+          }
+
+          if (controller.options.videoanalysis.active) {
+            await controller.videoanalysis.start();
+          }
+
+          //await controller.stream.configureStreamOptions();
+        } catch (error) {
+          this.log.info('An error occurred while setting up camera', cameraName);
+          this.log.error(error, cameraName);
+        }
+      }
+    };
+
+    await Promise.all(Array.from({ length: workerCount }, setupNextCamera));
   }
 
   /**

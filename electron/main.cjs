@@ -8,6 +8,7 @@ const packageJson = require('../package.json');
 let mainWindow = null;
 let cameraUi = null;
 let isClosing = false;
+const CAMERA_UI_START_TIMEOUT_MS = 90_000;
 
 const appCredit = 'Crafted by ZomBrox';
 const resolveAppRoot = () => (app.isPackaged ? path.join(process.resourcesPath, 'app') : path.resolve(__dirname, '..'));
@@ -257,19 +258,26 @@ const startCameraUi = async () => {
   const config = new ConfigService(configJson);
   cameraUi = new Interface(logger, config);
 
-  const launched = new Promise((resolve, reject) => {
+  const launched = new Promise((resolve) => {
     const timeout = setTimeout(() => {
-      reject(new Error(`camera.ui did not start on port ${config.ui.port} within 30 seconds.`));
-    }, 30_000);
+      resolve(false);
+    }, CAMERA_UI_START_TIMEOUT_MS);
 
     cameraUi.once('finishLaunching', () => {
       clearTimeout(timeout);
-      resolve();
+      resolve(true);
     });
   });
 
-  await cameraUi.start();
-  await launched;
+  const startPromise = cameraUi.start();
+  const didLaunch = await Promise.race([launched, startPromise.then(() => true)]);
+
+  if (!didLaunch) {
+    startPromise.catch(() => {});
+    throw new Error(`camera.ui did not start on port ${config.ui.port} within 90 seconds.`);
+  }
+
+  await startPromise;
 
   return config.ui.port;
 };
