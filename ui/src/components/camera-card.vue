@@ -106,6 +106,33 @@ import { getCameraSnapshot, getCameraStatus } from '@/api/cameras.api';
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const STREAM_STALL_TIMEOUT = 15000;
 const STREAM_WATCHDOG_INTERVAL = 5000;
+const SNAPSHOT_REQUEST_CONCURRENCY = 2;
+const CAMVIEW_SNAPSHOT_REFRESH_SECONDS = 8;
+
+let activeSnapshotRequests = 0;
+const pendingSnapshotRequests = [];
+
+const drainSnapshotQueue = () => {
+  while (activeSnapshotRequests < SNAPSHOT_REQUEST_CONCURRENCY && pendingSnapshotRequests.length > 0) {
+    const { task, resolve, reject } = pendingSnapshotRequests.shift();
+
+    activeSnapshotRequests++;
+
+    Promise.resolve()
+      .then(task)
+      .then(resolve, reject)
+      .finally(() => {
+        activeSnapshotRequests--;
+        drainSnapshotQueue();
+      });
+  }
+};
+
+const queueSnapshotRequest = (task) =>
+  new Promise((resolve, reject) => {
+    pendingSnapshotRequests.push({ task, resolve, reject });
+    drainSnapshotQueue();
+  });
 
 export default {
   components: {
@@ -366,8 +393,22 @@ export default {
         }, 1000);
       }
     },
+    snapshotRefreshSeconds() {
+      const configured = Number(this.camera.refreshTimer);
+
+      if (this.streamMode !== 'camview') {
+        return Number.isFinite(configured) && configured >= 1 ? configured : 60;
+      }
+
+      if (!Number.isFinite(configured) || configured < 1) {
+        return CAMVIEW_SNAPSHOT_REFRESH_SECONDS;
+      }
+
+      return Math.max(5, Math.min(configured, CAMVIEW_SNAPSHOT_REFRESH_SECONDS));
+    },
     async startSnapshot() {
-      this.loading = true;
+      const hasImage = Boolean(this.imgSource);
+      this.loading = !hasImage;
 
       if (this.snapshotTimerTimeout) {
         clearInterval(this.snapshotTimerTimeout);
@@ -375,25 +416,44 @@ export default {
       }
 
       try {
-        const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
+        const checkStatus = this.streamMode !== 'camview' || !hasImage;
+        const status = checkStatus
+          ? await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout)
+          : { data: { status: 'ONLINE' } };
 
-        this.$emit('cameraStatus', {
-          name: this.camera.name,
-          status: status.data.status,
-        });
+        if (this.destroyed) {
+          return;
+        }
+
+        if (checkStatus) {
+          this.$emit('cameraStatus', {
+            name: this.camera.name,
+            status: status.data.status,
+          });
+        }
 
         if (status.data.status === 'ONLINE') {
-          const snapshot = await getCameraSnapshot(this.camera.name, '?buffer=true');
+          const snapshotParameters = this.streamMode === 'camview' ? '?buffer=true&fromSubSource=true' : '?buffer=true';
+          const snapshot =
+            this.streamMode === 'camview'
+              ? await queueSnapshotRequest(() => getCameraSnapshot(this.camera.name, snapshotParameters))
+              : await getCameraSnapshot(this.camera.name, snapshotParameters);
+
+          if (this.destroyed) {
+            return;
+          }
+
           this.loading = false;
 
           if (!snapshot.data || (snapshot.data && snapshot.data === '')) {
-            this.offline = true;
+            this.offline = !this.imgSource;
           } else {
             this.offline = false;
             this.imgSource = `data:image/png;base64,${snapshot.data}`;
           }
         } else {
-          this.offline = true;
+          this.loading = false;
+          this.offline = !this.imgSource;
 
           if (!this.streamFallbackSnapshot) {
             this.$toast.error(`${this.camera.name}: ${this.$t('offline')}`);
@@ -401,13 +461,16 @@ export default {
         }
       } catch (err) {
         console.log(this.camera.name, err);
-        this.$toast.error(`${this.camera.name}: ${err.message}`);
+
+        if (!this.imgSource || !this.streamFallbackSnapshot) {
+          this.$toast.error(`${this.camera.name}: ${err.message}`);
+        }
 
         this.loading = false;
-        this.offline = true;
+        this.offline = !this.imgSource;
       }
 
-      if (this.refreshSnapshot || this.streamFallbackSnapshot) {
+      if ((this.refreshSnapshot || this.streamFallbackSnapshot) && !this.destroyed) {
         await timeout(10);
 
         this.snapshotTimer();
@@ -419,7 +482,7 @@ export default {
 
         this.snapshotTimeout = setTimeout(async () => {
           this.startSnapshot();
-        }, this.camera.refreshTimer * 1000);
+        }, this.snapshotRefreshSeconds() * 1000);
       }
     },
     async startStream() {

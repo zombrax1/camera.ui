@@ -2,6 +2,8 @@
 
 import App from '../../src/api/app.js';
 import Database from '../../src/api/database.js';
+import MotionController from '../../src/controller/motion/motion.controller.js';
+import { EventEmitter } from 'events';
 
 const app = new App({
   debug: process.env.CUI_LOG_MODE === '2',
@@ -79,6 +81,35 @@ describe('POST /api/cameras', () => {
 
     const response = await request.post('/api/cameras').auth(auth.body.access_token, { type: 'bearer' }).send(camera);
     expect(response.statusCode).toBe(409);
+  });
+});
+
+describe('MotionController.triggerMotion', () => {
+  it('should return an internal handling result when global recordings are active', async () => {
+    await Database.interfaceDB.chain.get('settings').get('recordings').assign({ active: true, timer: 1 }).value();
+
+    try {
+      const controller = new EventEmitter();
+      new MotionController(controller);
+
+      const startResult = await MotionController.triggerMotion('Test Camera 3', true);
+      const resetResult = await MotionController.triggerMotion('Test Camera 3', false);
+
+      expect(startResult).toEqual(
+        expect.objectContaining({
+          error: false,
+        })
+      );
+      expect(startResult.message).toContain('intern');
+
+      expect(resetResult).toEqual(
+        expect.objectContaining({
+          error: false,
+        })
+      );
+    } finally {
+      await Database.interfaceDB.chain.get('settings').get('recordings').assign({ active: false }).value();
+    }
   });
 });
 

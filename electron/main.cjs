@@ -117,12 +117,21 @@ const createStartupHtml = ({ title, message, detail = '', state = 'loading' }) =
 </html>`;
 };
 
+const isIgnorableNavigationError = (error) =>
+  error?.code === 'ERR_ABORTED' || error?.errno === -3 || String(error?.message || '').includes('ERR_ABORTED');
+
 const loadStartupPage = async (content) => {
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
 
-  await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(createStartupHtml(content))}`);
+  try {
+    await mainWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(createStartupHtml(content))}`);
+  } catch (error) {
+    if (!isIgnorableNavigationError(error)) {
+      console.warn('Unable to render camera.ui startup page:', error);
+    }
+  }
 };
 
 const resolveBundledFfmpegPath = (appRoot) => {
@@ -308,7 +317,13 @@ const createWindow = () => {
 };
 
 const loadApplication = async (port) => {
-  await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  try {
+    await mainWindow.loadURL(`http://127.0.0.1:${port}`);
+  } catch (error) {
+    if (!isIgnorableNavigationError(error)) {
+      throw error;
+    }
+  }
 };
 
 const shutdownCameraUi = async () => {

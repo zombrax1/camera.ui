@@ -81,7 +81,7 @@ export default class MotionController {
 
     //used for external events
     this.triggerMotion = MotionController.triggerMotion = async (cameraName, state) => {
-      await MotionController.handleMotion('motion', cameraName, state, 'extern');
+      return await MotionController.handleMotion('motion', cameraName, state, 'extern');
     };
 
     this.httpServer = MotionController.httpServer;

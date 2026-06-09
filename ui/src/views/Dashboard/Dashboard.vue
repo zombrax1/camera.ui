@@ -113,7 +113,7 @@ export default {
         const settings = await getCameraSettings(camera.name);
         camera.settings = settings.data;
         camera.live = camera.settings.dashboard.live || false;
-        camera.refreshTimer = camera.settings.dashboard.refreshTimer || 60;
+        camera.refreshTimer = camera.settings.dashboard.snapshotTimer || 60;
       }
 
       const widgets = await getSetting('widgets');

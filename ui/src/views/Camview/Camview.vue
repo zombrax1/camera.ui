@@ -139,7 +139,7 @@ export default {
             settings: settings.data,
             favourite: settings.data.camview.favourite,
             live: settings.data.camview.live || false,
-            refreshTimer: settings.data.camview.refreshTimer || 60,
+            refreshTimer: settings.data.camview.snapshotTimer || 60,
             lastNotification: lastNotification.data.result.length > 0 ? lastNotification.data.result[0] : false,
           };
         })
