@@ -33,25 +33,31 @@ export default class Ping {
     let available = false;
 
     try {
+      const timeoutMs = (timeout || 1) * 1000;
       const response = await nodejsTcpPing.tcpPing({
         attempts: 5,
         host: url.hostname,
         port: Number.parseInt(url.port) || 80,
-        timeout: (timeout || 1) * 1000,
+        timeout: timeoutMs,
       });
 
-      available = response.filter((result) => result.ping).length > 2;
+      // a timed out attempt is reported as a ping of timeout + 1ms, a camera that is switched off isn't online
+      available = response.filter((result) => result.ping && result.ping <= timeoutMs).length > 2;
     } catch {
       //ignore
     }
 
     if (!available) {
-      const response = await ping.promise.probe(url.hostname, {
-        timeout: timeout || 1,
-        extra: ['-i', '2'],
-      });
+      try {
+        const response = await ping.promise.probe(url.hostname, {
+          timeout: timeout || 1,
+          extra: ['-i', '2'],
+        });
 
-      available = response && response.alive;
+        available = response && response.alive;
+      } catch {
+        // no ping available on this system
+      }
     }
 
     log.debug(`Pinging ${url.hostname}:${url.port || 80} - ${available ? 'successful' : 'failed'}`, camera.name);

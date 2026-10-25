@@ -55,8 +55,8 @@ export default class Telegram {
 
     await axios.post(Telegram.#url(method), form, {
       headers: form.getHeaders(),
-      maxBodyLength: Infinity,
-      maxContentLength: Infinity,
+      maxBodyLength: Number.POSITIVE_INFINITY,
+      maxContentLength: Number.POSITIVE_INFINITY,
       timeout: 30000,
     });
   }

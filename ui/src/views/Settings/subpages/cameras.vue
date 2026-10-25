@@ -813,7 +813,7 @@
                       v-icon.text-muted.tw-mr-1(small) {{ icons['mdiInformationOutline'] }}
                       .input-info.tw-italic {{ message }}
 
-                label.form-input-label Video Subtream Source ¹
+                label.form-input-label Video Substream Source ¹
                 v-text-field(v-model="cam.videoConfig.subSource" :hint="$t('sub_source_info')" persistent-hint prepend-inner-icon="mdi-alphabetical" background-color="var(--cui-bg-card)" color="var(--cui-text-default)" solo)
                   template(v-slot:prepend-inner)
                     v-icon.text-muted {{ icons['mdiAlphabetical'] }}

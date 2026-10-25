@@ -4,7 +4,7 @@ import isEqual from 'lodash/isEqual.js';
 import moment from 'moment';
 import P2P from 'pipe2pam';
 import PamDiff from 'pam-diff';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import * as cameraUtils from '../utils/camera.utils.js';
 import Ping from '../../../common/ping.js';

@@ -4,6 +4,7 @@ module.exports = {
   transform: {},
   coveragePathIgnorePatterns: ['test.js'],
   moduleNameMapper: {
+    '^tar$': '<rootDir>/../node_modules/tar/dist/esm/index.js',
     '^entities$': '<rootDir>/../node_modules/htmlparser2/node_modules/entities/dist/commonjs/index.js',
     '^entities/(.*)$': '<rootDir>/../node_modules/htmlparser2/node_modules/entities/dist/commonjs/$1.js',
     '^htmlparser2$': '<rootDir>/../node_modules/htmlparser2/dist/commonjs/index.js',

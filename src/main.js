@@ -127,8 +127,14 @@ export default class Interface extends EventEmitter {
         controller.prebuffer.stop(true);
         controller.videoanalysis.stop(true);
         controller.stream.stop();
+        controller.live.main.stop();
+        controller.live.sub.stop();
       }
     }
+
+    // recordings, snapshots, probes etc. that are still running
+    const { killAllProcesses } = await import('./common/child-processes.js');
+    killAllProcesses();
 
     this.#server?.close();
   }

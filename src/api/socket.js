@@ -13,6 +13,7 @@ import ConfigService from '../services/config/config.service.js';
 import Database from './database.js';
 
 import CameraController from '../controller/camera/camera.controller.js';
+import { LIVE_VARIANTS, liveRoom } from '../controller/camera/services/live.service.js';
 import MotionController from '../controller/motion/motion.controller.js';
 
 const { log } = LoggerService;
@@ -59,6 +60,7 @@ const authorizeSocket = (socket, next) => {
 
 export default class Socket {
   #streamTimeouts = new Map();
+  #liveTimeouts = new Map();
 
   static #uptime = {
     systemTime: '0m',
@@ -170,6 +172,34 @@ export default class Socket {
         }
       });
 
+      socket.on('join_live', (data) => {
+        const variant = Socket.#liveVariant(data?.variant);
+
+        if (data?.feed) {
+          socket.join(liveRoom(variant, data.feed));
+          CameraController.cameras.get(data.feed)?.live[variant].attach(socket);
+          log.debug(
+            `${socket.decoded_token.username} (${socket.conn.remoteAddress}) joined live: ${data.feed} (${variant})`
+          );
+        }
+      });
+
+      socket.on('leave_live', (data) => {
+        if (data?.feed) {
+          socket.leave(liveRoom(Socket.#liveVariant(data.variant), data.feed));
+          log.debug(`${socket.decoded_token.username} (${socket.conn.remoteAddress}) left live: ${data.feed}`);
+        }
+      });
+
+      socket.on('refresh_live', (data) => {
+        if (data?.feed) {
+          log.debug(
+            `${socket.decoded_token.username} (${socket.conn.remoteAddress}) requested to restart live: ${data.feed}`
+          );
+          CameraController.cameras.get(data.feed)?.live[Socket.#liveVariant(data.variant)].restart();
+        }
+      });
+
       socket.on('getUptime', () => {
         Socket.io.emit('uptime', Socket.#uptime);
       });
@@ -258,6 +288,10 @@ export default class Socket {
     });
 
     Socket.io.of('/').adapter.on('join-room', (room) => {
+      if (room.startsWith('live/')) {
+        this.#handleLiveRoom(room, true);
+      }
+
       if (room.startsWith('stream/')) {
         const cameraName = room.split('/')[1];
         const clients = Socket.io.sockets.adapter.rooms.get(`stream/${cameraName}`)?.size || 0;
@@ -276,6 +310,10 @@ export default class Socket {
     });
 
     Socket.io.of('/').adapter.on('leave-room', (room) => {
+      if (room.startsWith('live/')) {
+        this.#handleLiveRoom(room, false);
+      }
+
       if (room.startsWith('stream/')) {
         const cameraName = room.split('/')[1];
         const clients = Socket.io.sockets.adapter.rooms.get(`stream/${cameraName}`)?.size || 0;
@@ -338,6 +376,41 @@ export default class Socket {
           break;
       }
     }
+  }
+
+  #handleLiveRoom(room, joined) {
+    const [, variant, ...name] = room.split('/');
+    const cameraName = name.join('/');
+    const live = CameraController.cameras.get(cameraName)?.live[variant];
+
+    if (!live) {
+      return;
+    }
+
+    clearTimeout(this.#liveTimeouts.get(room));
+    this.#liveTimeouts.delete(room);
+
+    if (joined) {
+      live.start();
+    } else if (!Socket.hasLiveClients(variant, cameraName)) {
+      log.debug(`If no clients connects to the live view, it will be closed in 15s (${cameraName}, ${variant})`);
+
+      this.#liveTimeouts.set(
+        room,
+        setTimeout(() => {
+          this.#liveTimeouts.delete(room);
+          live.stop();
+        }, 15000)
+      );
+    }
+  }
+
+  static #liveVariant(variant) {
+    return LIVE_VARIANTS.includes(variant) ? variant : 'main';
+  }
+
+  static hasLiveClients(variant, cameraName) {
+    return (Socket.io?.sockets.adapter.rooms.get(liveRoom(variant, cameraName))?.size || 0) > 0;
   }
 
   static getStreamOptions(cameraName) {

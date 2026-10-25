@@ -1,7 +1,7 @@
 'use-strict';
 
 import net from 'net';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import ConfigService from '../../../services/config/config.service.js';
 
@@ -34,14 +34,14 @@ const inputError = (message) => Object.assign(new Error(message), { statusCode: 
 
 const redactUri = (uri) =>
   uri
-    .replace(/(rtsp:\/\/[^:/@]+:)[^@]+@/i, '$1***@')
-    .replace(/(password=)[^_&?\s/]+/gi, '$1***')
-    .replace(/(pwd=)[^_&?\s/]+/gi, '$1***')
-    .replace(/(pass=)[^_&?\s/]+/gi, '$1***');
+    .replace(/(rtsp:\/\/[^/:@]+:)[^@]+@/i, '$1***@')
+    .replace(/(password=)[^\s&/?_]+/gi, '$1***')
+    .replace(/(pwd=)[^\s&/?_]+/gi, '$1***')
+    .replace(/(pass=)[^\s&/?_]+/gi, '$1***');
 
 const cleanError = (message) => redactUri(`${message || ''}`.replace(/\s+/g, ' ').trim()).slice(0, 260);
 
-const encodeAuthPart = (value) => encodeURIComponent(value || '').replace(/%3A/gi, ':');
+const encodeAuthPart = (value) => encodeURIComponent(value || '').replace(/%3a/gi, ':');
 
 const isPrivateCameraIp = (ip) => {
   if (net.isIP(ip) !== 4) {
@@ -58,12 +58,17 @@ const isPrivateCameraIp = (ip) => {
   );
 };
 
-const buildRtspUri = ({ host, port = DEFAULT_RTSP_PORT, path = '/', username = '', password = '', includeColon = true }) => {
+const buildRtspUri = ({
+  host,
+  port = DEFAULT_RTSP_PORT,
+  path = '/',
+  username = '',
+  password = '',
+  includeColon = true,
+}) => {
   const safePath = path.startsWith('/') ? path : `/${path}`;
   const auth =
-    username || password
-      ? `${encodeAuthPart(username)}${includeColon ? `:${encodeAuthPart(password)}` : ''}@`
-      : '';
+    username || password ? `${encodeAuthPart(username)}${includeColon ? `:${encodeAuthPart(password)}` : ''}@` : '';
 
   return `rtsp://${auth}${host}:${port}${safePath}`;
 };
@@ -115,7 +120,10 @@ export const candidatesFor = ({ ip, uri, username = '', password = '' }) => {
     addCandidate(candidates, buildRtspUri({ host, port, path: originalPath, username, password }));
 
     if (username && !password) {
-      addCandidate(candidates, buildRtspUri({ host, port, path: originalPath, username, password, includeColon: false }));
+      addCandidate(
+        candidates,
+        buildRtspUri({ host, port, path: originalPath, username, password, includeColon: false })
+      );
     }
   }
 
@@ -139,7 +147,7 @@ export const candidatesFor = ({ ip, uri, username = '', password = '' }) => {
 export const probeUri = (uri) =>
   new Promise((resolve) => {
     const videoProcessor = ConfigService.ui?.options?.videoProcessor || 'ffmpeg';
-    const args = [
+    const arguments_ = [
       '-hide_banner',
       '-loglevel',
       'error',
@@ -172,7 +180,7 @@ export const probeUri = (uri) =>
       });
     };
 
-    const process_ = spawn(videoProcessor, args, { env: process.env });
+    const process_ = spawn(videoProcessor, arguments_, { env: process.env });
     const timeout = setTimeout(() => {
       process_.kill('SIGKILL');
       finish({
@@ -205,7 +213,7 @@ export const probeUri = (uri) =>
 export const captureThumbnail = (uri) =>
   new Promise((resolve) => {
     const videoProcessor = ConfigService.ui?.options?.videoProcessor || 'ffmpeg';
-    const args = [
+    const arguments_ = [
       '-hide_banner',
       '-loglevel',
       'error',
@@ -241,7 +249,7 @@ export const captureThumbnail = (uri) =>
       resolve(result);
     };
 
-    const process_ = spawn(videoProcessor, args, { env: process.env });
+    const process_ = spawn(videoProcessor, arguments_, { env: process.env });
     const timeout = setTimeout(() => {
       process_.kill('SIGKILL');
       finish({

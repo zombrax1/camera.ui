@@ -35,7 +35,8 @@
         // Stream Canvas / Img Container
         .tw-w-full.tw-h-full(@click="!noLink && !blank ? $router.push(`cameras/${camera.name}`) : null" :class="!noLink && !blank ? 'tw-cursor-pointer' : ''")
           .tw-bg-black.tw-absolute.tw-inset-0(v-if="loading || false" style="border-radius: 10px;")
-          canvas.main.tw-w-full.tw-h-full(v-if="effectiveStream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
+          video.main.live-video.tw-w-full.tw-h-full(v-if="effectiveStream && useMse" ref="liveVideo" muted autoplay playsinline disablepictureinpicture)
+          canvas.main.tw-w-full.tw-h-full(v-else-if="effectiveStream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
           .tw-w-full.tw-h-full(v-else)
             .img-shadow-overlay
             v-img.main.tw-w-full.tw-h-full(:src="imgSource")
@@ -60,7 +61,7 @@
             .tw-ml-auto
             .tw-block.tw-p-2.tw-pr-0(v-if="!hideIndicatorReload")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="refreshStream(false)") {{ icons['mdiRefresh'] }}
-            .tw-block.tw-p-2.tw-pr-0(v-if="camera.settings.audio && !hideIndicatorAudio")
+            .tw-block.tw-p-2.tw-pr-0(v-if="camera.settings.audio && !hideIndicatorAudio && !useMse")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="handleVolume") {{ audio ? icons['mdiVolumeHigh'] : icons['mdiVolumeOff'] }}
             .tw-block.tw-p-2.tw-pr-0(v-if="!hideIndicatorFullscreen")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="toggleFullscreen") {{ !fullscreen ? icons['mdiArrowExpand'] : icons['mdiArrowCollapse'] }}
@@ -89,6 +90,7 @@ import LightBox from 'vue-it-bigger';
 import 'vue-it-bigger/dist/vue-it-bigger.min.css';
 import JSMpeg from '@seydx/jsmpeg/lib/index.js';
 import JSMpegWritableSource from '@/common/jsmpeg-source.js';
+import MsePlayer, { isCodecSupported, isMseSupported } from '@/common/mse-player.js';
 import {
   mdiArrowExpand,
   mdiArrowCollapse,
@@ -106,6 +108,18 @@ import { getCameraSnapshot, getCameraStatus } from '@/api/cameras.api';
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const STREAM_STALL_TIMEOUT = 15000;
 const STREAM_WATCHDOG_INTERVAL = 5000;
+const LIVE_START_TIMEOUT = 15000;
+// no video data from the camera
+const LIVE_STALL_TIMEOUT = 5000;
+// video data arrives but the picture doesn't move
+const LIVE_FROZEN_TIMEOUT = 10000;
+// restarts after a frozen picture or player error, before the tile switches to the transcoded stream
+const LIVE_RESYNC_LIMIT = 3;
+const LIVE_RESYNC_WINDOW = 2 * 60 * 1000;
+// tiles that can't play natively are transcoded on the server, keep that load bounded in a dense camview
+const DENSE_TRANSCODE_LIMIT = 4;
+
+let denseTranscodedStreams = 0;
 const SNAPSHOT_REQUEST_CONCURRENCY = 2;
 const CAMVIEW_SNAPSHOT_REFRESH_SECONDS = 8;
 
@@ -191,6 +205,14 @@ export default {
     play: false,
     player: null,
     lastStreamDataAt: 0,
+    liveSession: null,
+    mseFailed: false,
+    countedAsTranscoded: false,
+    msePlayer: null,
+    liveChecking: false,
+    liveResyncs: [],
+    lastLiveProgressAt: 0,
+    lastLiveTime: -1,
     snapshotTimerTimeout: null,
     snapshotTimeout: null,
     streamFallbackSnapshot: false,
@@ -202,6 +224,13 @@ export default {
   computed: {
     effectiveStream() {
       return this.stream && !this.streamFallbackSnapshot;
+    },
+    // camview tiles play the camera video natively (no transcoding), so many cameras can run at once
+    useMse() {
+      return this.streamMode === 'camview' && !this.mseFailed && isMseSupported();
+    },
+    liveVariant() {
+      return this.denseStream ? 'sub' : 'main';
     },
     canvasHeight() {
       return this.denseStream ? 360 : 720;
@@ -268,7 +297,15 @@ export default {
       window.removeEventListener('resize', this.resizeFullscreenVideo);
     },
     handleStartStop() {
-      if (this.player) {
+      if (this.msePlayer) {
+        if (this.msePlayer.paused) {
+          this.msePlayer.play();
+          this.play = true;
+        } else {
+          this.msePlayer.pause();
+          this.play = false;
+        }
+      } else if (this.player) {
         const paused = this.player.paused;
 
         if (paused) {
@@ -343,7 +380,9 @@ export default {
         this.streamTimeout = null;
       }
 
-      if (rejoin === true) {
+      if (this.msePlayer) {
+        this.refreshLiveStream(rejoin);
+      } else if (rejoin === true) {
         this.$socket.client.emit('rejoin_stream', this.streamSocketPayload());
       } else {
         this.offline = false;
@@ -489,7 +528,19 @@ export default {
       try {
         this.streamFallbackSnapshot = false;
 
+        // no ping first: pings of offline cameras are slow and the browser only runs a few requests at once,
+        // they would hold back the cameras that work. The tile finds out from the stream itself.
+        if (this.useMse) {
+          this.offline = false;
+          this.startLiveStream();
+          return;
+        }
+
         const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
+
+        if (this.destroyed) {
+          return;
+        }
 
         if (status.data.status === 'ONLINE') {
           this.offline = false;
@@ -545,6 +596,12 @@ export default {
     },
     destroy() {
       this.destroyed = true;
+
+      if (this.countedAsTranscoded) {
+        denseTranscodedStreams--;
+        this.countedAsTranscoded = false;
+      }
+
       this.stopStream();
       this.stopSnapshot();
 
@@ -566,6 +623,11 @@ export default {
       }
     },
     stopStream() {
+      if (this.msePlayer) {
+        this.stopLiveStream();
+        return;
+      }
+
       if (this.player) {
         this.player.destroy();
         this.player = null;
@@ -603,10 +665,262 @@ export default {
         this.$toast[level] ? this.$toast[level](message) : this.$toast.warning(message);
       }
     },
+    startLiveStream() {
+      this.liveSession = {
+        feed: this.camera.name,
+        variant: this.liveVariant,
+      };
+
+      this.msePlayer = new MsePlayer(this.$refs.liveVideo, {
+        onPlaying: () => this.onLivePlaying(),
+        onError: (error) => this.resyncLive(error),
+        onResume: () => this.$socket.client.emit('join_live', this.liveSession),
+        // fell behind (e.g. the tab was in the background), start over from the last keyframe
+        onResync: () => this.$socket.client.emit('join_live', this.liveSession),
+      });
+
+      const events = this.liveEvents();
+      this.$socket.client.on(events.init, this.onLiveInit);
+      this.$socket.client.on(events.error, this.onLiveError);
+      this.$socket.client.on(events.data, this.writeLive);
+
+      this.lastStreamDataAt = Date.now();
+      this.lastLiveProgressAt = Date.now();
+      this.$socket.client.emit('join_live', this.liveSession);
+
+      this.startStreamWatchdog();
+      this.startLiveTimeout();
+    },
+    startLiveTimeout() {
+      if (this.streamTimeout) {
+        clearTimeout(this.streamTimeout);
+      }
+
+      this.streamTimeout = setTimeout(() => {
+        this.streamTimeout = null;
+
+        if (this.loading) {
+          this.checkLiveCamera();
+        }
+      }, Math.min(LIVE_START_TIMEOUT, this.timeout * 1000));
+    },
+    onLivePlaying() {
+      this.loading = false;
+      this.offline = false;
+      this.play = true;
+      this.lastLiveProgressAt = Date.now();
+
+      if (this.streamTimeout) {
+        clearTimeout(this.streamTimeout);
+        this.streamTimeout = null;
+      }
+    },
+    // no picture: either the camera is down (show it on this tile only and wait, the server keeps retrying)
+    // or the camera is reachable but its stream can't be passed through (use the transcoded stream)
+    async checkLiveCamera() {
+      if (!this.msePlayer || this.liveChecking) {
+        return;
+      }
+
+      this.liveChecking = true;
+
+      let online = false;
+
+      try {
+        const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
+        online = status.data.status === 'ONLINE';
+      } catch {
+        // treated as offline
+      }
+
+      this.liveChecking = false;
+
+      if (!this.msePlayer || this.destroyed || !this.loading) {
+        return;
+      }
+
+      if (online) {
+        this.resyncLive(new Error('No picture from a reachable camera'), true);
+        return;
+      }
+
+      this.loading = false;
+      this.offline = true;
+    },
+    // starts this tile over from the server's last keyframe (or restarts the camera stream when there is none),
+    // after repeated problems the transcoded stream is used
+    resyncLive(error, restartStream = false) {
+      if (!this.msePlayer) {
+        return;
+      }
+
+      const now = Date.now();
+      this.liveResyncs = [...this.liveResyncs.filter((time) => now - time < LIVE_RESYNC_WINDOW), now];
+
+      if (this.liveResyncs.length > LIVE_RESYNC_LIMIT) {
+        this.handleLiveFailure(error);
+        return;
+      }
+
+      console.log(`${this.camera.name}: restarting live view`, error?.message || error);
+
+      this.lastLiveProgressAt = now;
+      this.loading = true;
+      this.$socket.client.emit(restartStream ? 'refresh_live' : 'join_live', this.liveSession);
+      this.startLiveTimeout();
+    },
+    refreshLiveStream(rejoin) {
+      this.lastStreamDataAt = Date.now();
+
+      if (rejoin === true) {
+        // the socket reconnected and lost its rooms
+        this.$socket.client.emit('join_live', this.liveSession);
+
+        if (this.loading) {
+          this.startLiveTimeout();
+        }
+
+        return;
+      }
+
+      this.liveResyncs = [];
+      this.offline = false;
+      this.loading = true;
+      this.$socket.client.emit('refresh_live', this.liveSession);
+      this.startLiveTimeout();
+    },
+    stopLiveStream() {
+      if (this.liveSession) {
+        const events = this.liveEvents();
+        this.$socket.client.off(events.init, this.onLiveInit);
+        this.$socket.client.off(events.error, this.onLiveError);
+        this.$socket.client.off(events.data, this.writeLive);
+        this.$socket.client.emit('leave_live', this.liveSession);
+        this.liveSession = null;
+      }
+
+      if (this.msePlayer) {
+        this.msePlayer.destroy();
+        this.msePlayer = null;
+      }
+
+      if (this.streamTimeout) {
+        clearTimeout(this.streamTimeout);
+        this.streamTimeout = null;
+      }
+
+      this.stopStreamWatchdog();
+    },
+    // e.g. a codec the browser can't play (H.265 without hardware support), fall back to the transcoded stream
+    handleLiveFailure(error) {
+      if (!this.msePlayer) {
+        return;
+      }
+
+      console.log(`${this.camera.name}: native live view not available`, error?.message || error);
+
+      this.stopLiveStream();
+      this.mseFailed = true;
+      this.loading = true;
+      this.offline = false;
+
+      if (this.denseStream) {
+        if (denseTranscodedStreams >= DENSE_TRANSCODE_LIMIT) {
+          this.streamFallbackSnapshot = true;
+          this.startSnapshot();
+          return;
+        }
+
+        denseTranscodedStreams++;
+        this.countedAsTranscoded = true;
+      }
+
+      this.$nextTick(() => {
+        if (!this.destroyed) {
+          this.startStream();
+        }
+      });
+    },
+    liveEvents() {
+      const room = `live/${this.liveSession.variant}/${this.liveSession.feed}`;
+
+      return {
+        data: room,
+        init: `${room}:init`,
+        error: `${room}:error`,
+      };
+    },
+    // socket handlers never throw, an exception would also reach the socket client shared by all tiles
+    onLiveInit(data) {
+      try {
+        if (!this.msePlayer) {
+          return;
+        }
+
+        if (!isCodecSupported(data?.codec)) {
+          this.handleLiveFailure(new Error(`Codec not supported: ${data?.codec}`));
+          return;
+        }
+
+        this.lastStreamDataAt = Date.now();
+        this.msePlayer.init(data.codec, data.init);
+      } catch (error) {
+        this.resyncLive(error);
+      }
+    },
+    onLiveError() {
+      // the camera stream didn't start (the server keeps retrying), find out if the camera is reachable
+      if (this.loading) {
+        this.checkLiveCamera();
+      }
+    },
+    writeLive(segment) {
+      try {
+        if (this.msePlayer) {
+          this.lastStreamDataAt = Date.now();
+          this.msePlayer.append(segment);
+        }
+      } catch (error) {
+        this.resyncLive(error);
+      }
+    },
+    checkLiveHealth() {
+      const now = Date.now();
+      const video = this.$refs.liveVideo;
+
+      // browsers may stop decoding videos of a hidden tab, that isn't a frozen picture
+      if (document.hidden) {
+        this.lastLiveProgressAt = now;
+        return;
+      }
+
+      if (video && video.currentTime !== this.lastLiveTime) {
+        this.lastLiveTime = video.currentTime;
+        this.lastLiveProgressAt = now;
+      }
+
+      // still starting, offline (waiting for the camera) or paused by the user
+      if (this.loading || this.offline || this.liveChecking || !this.play) {
+        return;
+      }
+
+      if (now - this.lastStreamDataAt >= LIVE_STALL_TIMEOUT) {
+        // the camera stopped sending (the server reconnects it), not a player problem
+        this.loading = true;
+        this.startLiveTimeout();
+      } else if (now - this.lastLiveProgressAt >= LIVE_FROZEN_TIMEOUT) {
+        this.resyncLive(new Error('Picture frozen'));
+      }
+    },
     startStreamWatchdog() {
       this.stopStreamWatchdog();
 
       this.streamWatchdogInterval = setInterval(() => {
+        if (this.msePlayer) {
+          this.checkLiveHealth();
+          return;
+        }
+
         if (!this.player || this.loading || this.offline || !this.lastStreamDataAt) {
           return;
         }
@@ -673,6 +987,11 @@ export default {
 
 .video-card-container {
   height: 100%;
+}
+
+.live-video {
+  object-fit: fill;
+  background: #000;
 }
 
 .video-card {

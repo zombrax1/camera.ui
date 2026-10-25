@@ -2,6 +2,7 @@
 
 import ConfigService from '../../services/config/config.service.js';
 
+import LiveService from './services/live.service.js';
 import MediaService from './services/media.service.js';
 import PrebufferService from './services/prebuffer.service.js';
 import SessionService from './services/session.service.js';
@@ -34,6 +35,10 @@ export default class CameraController {
     );
     const sessionService = new SessionService(camera);
     const streamService = new StreamService(camera, prebufferService, mediaService, sessionService);
+    const liveServices = {
+      main: new LiveService(camera, prebufferService, mediaService, 'main'),
+      sub: new LiveService(camera, prebufferService, mediaService, 'sub'),
+    };
 
     const controller = {
       options: camera,
@@ -42,6 +47,7 @@ export default class CameraController {
       prebuffer: prebufferService,
       session: sessionService,
       stream: streamService,
+      live: liveServices,
     };
 
     CameraController.cameras.set(camera.name, controller);
@@ -57,6 +63,8 @@ export default class CameraController {
     controller.prebuffer.destroy();
     controller.videoanalysis.destroy(true);
     controller.stream.destroy();
+    controller.live.main.destroy();
+    controller.live.sub.destroy();
     controller.session.clearSession();
 
     CameraController.cameras.delete(cameraName);
@@ -109,6 +117,8 @@ export default class CameraController {
     await controller.prebuffer.reconfigure(camera);
     controller.videoanalysis.reconfigure(camera);
     controller.stream.reconfigure(camera);
+    controller.live.main.reconfigure(camera);
+    controller.live.sub.reconfigure(camera);
 
     CameraController.cameras.set(camera.name, controller);
   }
