@@ -36,8 +36,7 @@ const isSafeRestoreEntry = (filePath, entry) => {
   }
 
   return (
-    normalized === 'info.json' ||
-    RESTORE_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`))
+    normalized === 'info.json' || RESTORE_ROOTS.some((root) => normalized === root || normalized.startsWith(`${root}/`))
   );
 };
 

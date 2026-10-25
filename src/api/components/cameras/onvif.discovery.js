@@ -16,19 +16,13 @@ const inputError = (message) => Object.assign(new Error(message), { statusCode: 
 const envelope = (body) =>
   `<?xml version="1.0" encoding="UTF-8"?><s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope"><s:Body>${body}</s:Body></s:Envelope>`;
 
-const getSystemDateAndTimeBody = envelope(
-  '<GetSystemDateAndTime xmlns="http://www.onvif.org/ver10/device/wsdl"/>'
-);
-const getDeviceInformationBody = envelope(
-  '<GetDeviceInformation xmlns="http://www.onvif.org/ver10/device/wsdl"/>'
-);
+const getSystemDateAndTimeBody = envelope('<GetSystemDateAndTime xmlns="http://www.onvif.org/ver10/device/wsdl"/>');
+const getDeviceInformationBody = envelope('<GetDeviceInformation xmlns="http://www.onvif.org/ver10/device/wsdl"/>');
 const getProfilesBody = envelope('<GetProfiles xmlns="http://www.onvif.org/ver10/media/wsdl"/>');
 
-const toInteger = (ip) =>
-  ip.split('.').reduce((result, octet) => (result << 8) + Number.parseInt(octet, 10), 0) >>> 0;
+const toInteger = (ip) => ip.split('.').reduce((result, octet) => (result << 8) + Number.parseInt(octet, 10), 0) >>> 0;
 
-const fromInteger = (integer) =>
-  [24, 16, 8, 0].map((shift) => (integer >>> shift) & 255).join('.');
+const fromInteger = (integer) => [24, 16, 8, 0].map((shift) => (integer >>> shift) & 255).join('.');
 
 const isPrivateCameraIp = (ip) => {
   if (net.isIP(ip) !== 4) {
@@ -46,9 +40,11 @@ const isPrivateCameraIp = (ip) => {
 };
 
 const normalizePorts = (ports = DEFAULT_PORTS) => {
-  const normalized = [...new Set(ports.map((port) => Number.parseInt(port, 10)).filter((port) => DEFAULT_PORT_SET.has(port)))];
+  const normalized = [
+    ...new Set(ports.map((port) => Number.parseInt(port, 10)).filter((port) => DEFAULT_PORT_SET.has(port))),
+  ];
 
-  return normalized.length ? normalized : DEFAULT_PORTS;
+  return normalized.length > 0 ? normalized : DEFAULT_PORTS;
 };
 
 const prefixFromNetmask = (netmask) =>
@@ -70,10 +66,10 @@ const attributeValues = (xml, tag, attribute) =>
 
 const redactUri = (uri) =>
   uri
-    .replace(/(rtsp:\/\/[^:/@]+:)[^@]+@/i, '$1***@')
-    .replace(/(password=)[^_&?\s/]+/gi, '$1***')
-    .replace(/(pwd=)[^_&?\s/]+/gi, '$1***')
-    .replace(/(pass=)[^_&?\s/]+/gi, '$1***');
+    .replace(/(rtsp:\/\/[^/:@]+:)[^@]+@/i, '$1***@')
+    .replace(/(password=)[^\s&/?_]+/gi, '$1***')
+    .replace(/(pwd=)[^\s&/?_]+/gi, '$1***')
+    .replace(/(pass=)[^\s&/?_]+/gi, '$1***');
 
 const escapeXml = (value) =>
   `${value || ''}`
@@ -111,15 +107,15 @@ const withSoapSecurity = (body, credentials = {}) => {
 const parseAuthenticateHeader = (header) => {
   const challenge = Array.isArray(header) ? header[0] : header || '';
   const scheme = challenge.match(/^\s*(\w+)/)?.[1]?.toLowerCase() || '';
-  const params = {};
+  const parameters = {};
 
   for (const match of challenge.matchAll(/(\w+)=("([^"]*)"|([^,]*))/g)) {
-    params[match[1].toLowerCase()] = match[3] || match[4] || '';
+    parameters[match[1].toLowerCase()] = match[3] || match[4] || '';
   }
 
   return {
     scheme,
-    params,
+    params: parameters,
   };
 };
 
@@ -148,7 +144,9 @@ const createAuthorizationHeader = (challenge, method, path, { username = '', pas
   const ha1Base = md5(`${username}:${params.realm}:${password}`);
   const ha1 = algorithm === 'MD5-SESS' ? md5(`${ha1Base}:${params.nonce}:${cnonce}`) : ha1Base;
   const ha2 = md5(`${method}:${path}`);
-  const response = qop ? md5(`${ha1}:${params.nonce}:${nc}:${cnonce}:${qop}:${ha2}`) : md5(`${ha1}:${params.nonce}:${ha2}`);
+  const response = qop
+    ? md5(`${ha1}:${params.nonce}:${nc}:${cnonce}:${qop}:${ha2}`)
+    : md5(`${ha1}:${params.nonce}:${ha2}`);
   const parts = [
     `username="${username}"`,
     `realm="${params.realm}"`,
@@ -174,7 +172,7 @@ const createAuthorizationHeader = (challenge, method, path, { username = '', pas
 
 const isOnvifResponse = (response) => {
   const haystack = `${response.status || ''} ${response.server || ''} ${response.data || ''}`;
-  return /onvif|SOAP|Envelope|GetSystemDateAndTime|Unauthorized|Authentication|ter:|tds:/i.test(haystack);
+  return /onvif|soap|envelope|getsystemdateandtime|unauthorized|authentication|ter:|tds:/i.test(haystack);
 };
 
 const sendOnvif = (host, port, path, body, authorization = '') =>
@@ -255,10 +253,12 @@ const getDhcpLanScanTargets = () => {
         continue;
       }
 
-      const prefix = network.cidr ? Number.parseInt(network.cidr.split('/')[1], 10) : prefixFromNetmask(network.netmask);
+      const prefix = network.cidr
+        ? Number.parseInt(network.cidr.split('/')[1], 10)
+        : prefixFromNetmask(network.netmask);
       const address = toInteger(network.address);
       const scanPrefix = prefix < 24 ? 24 : prefix;
-      const mask = scanPrefix === 0 ? 0 : (0xffffffff << (32 - scanPrefix)) >>> 0;
+      const mask = scanPrefix === 0 ? 0 : (~0 << (32 - scanPrefix)) >>> 0;
       const start = (address & mask) >>> 0;
       const end = (start | (~mask >>> 0)) >>> 0;
       const scanEnd = Math.min(end - 1, start + 254);
@@ -273,7 +273,7 @@ const getDhcpLanScanTargets = () => {
         }
       }
 
-      if (networkHosts.length) {
+      if (networkHosts.length > 0) {
         networks.push({
           name,
           address: network.address,
@@ -307,7 +307,7 @@ const probeEndpoint = async (host, port) => {
         host,
         port,
         path,
-        authRequired: response.status === 401 || /Unauthorized|Authentication/i.test(response.data || ''),
+        authRequired: response.status === 401 || /unauthorized|authentication/i.test(response.data || ''),
         server: response.server,
       };
     }
@@ -323,7 +323,13 @@ const inspectEndpoint = async (endpoint, credentials = {}) => {
   const streams = [];
 
   for (const token of tokens.slice(0, 4)) {
-    const stream = await requestOnvif(endpoint.host, endpoint.port, endpoint.path, getStreamUriBody(token), credentials);
+    const stream = await requestOnvif(
+      endpoint.host,
+      endpoint.port,
+      endpoint.path,
+      getStreamUriBody(token),
+      credentials
+    );
     const uri = tagValue(stream.data, 'Uri');
 
     if (uri) {
