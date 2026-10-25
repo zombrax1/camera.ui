@@ -15,8 +15,8 @@ const { log } = LoggerService;
 const FRAGMENT_DURATION_US = 100000;
 const GOP_CACHE_MAX_BYTES = 16 * 1024 * 1024;
 const STALL_TIMEOUT = 20000;
-const RESTART_WINDOW = 60 * 1000;
-const RESTART_LIMIT = 3;
+const RESTART_DELAY = 2000;
+const RESTART_DELAY_MAX = 30000;
 
 export const LIVE_VARIANTS = ['main', 'sub'];
 
@@ -44,7 +44,6 @@ export default class LiveService {
   #watchdog = null;
   #restartTimer = null;
   #restartAttempts = 0;
-  #lastRestartAttemptAt = 0;
 
   destroyed = false;
 
@@ -59,6 +58,15 @@ export default class LiveService {
 
   get room() {
     return liveRoom(this.#variant, this.cameraName);
+  }
+
+  // events are per camera, so a problem in one viewer tile can't keep others from getting theirs
+  get initEvent() {
+    return `${this.room}:init`;
+  }
+
+  get errorEvent() {
+    return `${this.room}:error`;
   }
 
   reconfigure(camera) {
@@ -81,7 +89,7 @@ export default class LiveService {
       return;
     }
 
-    socket.emit('live_init', this.#initPayload());
+    socket.emit(this.initEvent, this.#initPayload());
 
     for (const segment of this.#gopCache) {
       socket.emit(this.room, segment);
@@ -115,6 +123,19 @@ export default class LiveService {
   }
 
   async start() {
+    try {
+      await this.#start();
+    } catch (error) {
+      // never let one camera reject: an unhandled rejection would stop camera.ui and every other camera
+      log.error(`Live (${this.#variant}): ${error.message}`, this.cameraName, 'streams');
+
+      if (!this.destroyed && Socket.hasLiveClients(this.#variant, this.cameraName)) {
+        this.#scheduleRestart();
+      }
+    }
+  }
+
+  async #start() {
     if (this.#process || this.destroyed) {
       return;
     }
@@ -198,13 +219,19 @@ export default class LiveService {
 
       if (failed) {
         errors.unshift(`Live (${this.#variant}) exited with error! (${code ?? signal})`);
-        log.error(errors.join(' - '), this.cameraName, 'streams');
+
+        // a camera that is down fails on every retry, log it once
+        if (this.#restartAttempts === 0) {
+          log.error(errors.join(' - '), this.cameraName, 'streams');
+        } else {
+          log.debug(errors.join(' - '), this.cameraName);
+        }
       } else {
         log.debug(`Live (${this.#variant}) exit (expected)`, this.cameraName);
       }
 
       if (!this.#init && failed) {
-        Socket.io?.to(this.room).emit('live_error', {
+        Socket.io?.to(this.room).emit(this.errorEvent, {
           feed: this.cameraName,
           variant: this.#variant,
           message: errors.join(' - '),
@@ -239,7 +266,6 @@ export default class LiveService {
       return;
     }
 
-    this.#restartAttempts = 0;
     this.stop();
     this.start();
   }
@@ -260,7 +286,7 @@ export default class LiveService {
         this.#init = Buffer.concat([this.#init || Buffer.alloc(0), box.data]);
         this.#codec = getCodecString(box.data);
         this.#defaultSampleFlags = getDefaultSampleFlags(box.data);
-        Socket.io?.to(this.room).emit('live_init', this.#initPayload());
+        Socket.io?.to(this.room).emit(this.initEvent, this.#initPayload());
         break;
       case 'moof':
         this.#moof = box.data;
@@ -274,7 +300,11 @@ export default class LiveService {
         const segment = Buffer.concat([this.#moof, box.data]);
 
         this.#moof = null;
-        this.#restartAttempts = 0;
+
+        if (this.#restartAttempts > 0) {
+          log.info(`Live (${this.#variant}): Camera stream is back`, this.cameraName);
+          this.#restartAttempts = 0;
+        }
 
         if (keyframe || this.#gopCacheBytes + segment.length > GOP_CACHE_MAX_BYTES) {
           this.#gopCache = [];
@@ -312,23 +342,19 @@ export default class LiveService {
     this.#gopCacheBytes = 0;
   }
 
+  // keeps retrying while someone watches, so a camera that was down comes back on its own
   #scheduleRestart() {
-    const now = Date.now();
+    clearTimeout(this.#restartTimer);
 
-    if (now - this.#lastRestartAttemptAt > RESTART_WINDOW) {
-      this.#restartAttempts = 0;
-    }
-
-    this.#lastRestartAttemptAt = now;
     this.#restartAttempts++;
 
-    if (this.#restartAttempts > RESTART_LIMIT) {
-      log.warn(`Live (${this.#variant}) exited repeatedly. Automatic restart paused.`, this.cameraName, 'streams');
-      return;
-    }
+    const delay = Math.min(RESTART_DELAY * this.#restartAttempts, RESTART_DELAY_MAX);
 
-    log.debug(`Live (${this.#variant}) exited while clients are connected. Restarting...`, this.cameraName);
-    this.#restartTimer = setTimeout(() => this.start(), 2000 * this.#restartAttempts);
+    log.debug(
+      `Live (${this.#variant}) not running while clients are connected. Retrying in ${delay / 1000}s`,
+      this.cameraName
+    );
+    this.#restartTimer = setTimeout(() => this.start(), delay);
   }
 
   #startWatchdog() {

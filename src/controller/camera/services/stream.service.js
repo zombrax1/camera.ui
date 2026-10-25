@@ -160,6 +160,15 @@ export default class StreamService {
   }
 
   async start() {
+    try {
+      await this.#start();
+    } catch (error) {
+      // never let one camera reject: an unhandled rejection would stop camera.ui and every other camera
+      log.error(error?.message || error, this.cameraName, 'streams');
+    }
+  }
+
+  async #start() {
     if (!this.streamSession) {
       // eslint-disable-next-line no-unused-vars
       let { ffmpegInput, prebuffer, audioArguments, videoArguments, additionalFlags } =

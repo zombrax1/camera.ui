@@ -12,11 +12,12 @@ export const isCodecSupported = (codec) =>
   isMseSupported() && Boolean(codec) && window.MediaSource.isTypeSupported(`video/mp4; codecs="${codec}"`);
 
 export default class MsePlayer {
-  constructor(video, { onError, onPlaying, onResync } = {}) {
+  constructor(video, { onError, onPlaying, onResync, onResume } = {}) {
     this.video = video;
     this.onError = onError || (() => {});
     this.onPlaying = onPlaying || (() => {});
     this.onResync = onResync || (() => {});
+    this.onResume = onResume || (() => {});
 
     this.mediaSource = null;
     this.sourceBuffer = null;
@@ -26,7 +27,14 @@ export default class MsePlayer {
     this.destroyed = false;
 
     this.handlePlaying = () => this.onPlaying();
+    this.handleVideoError = () => {
+      if (this.mediaSource) {
+        this.onError(new Error(`Video error: ${this.video.error?.message || this.video.error?.code}`));
+      }
+    };
+
     this.video.addEventListener('playing', this.handlePlaying);
+    this.video.addEventListener('error', this.handleVideoError);
   }
 
   init(codec, initSegment) {
@@ -65,7 +73,8 @@ export default class MsePlayer {
   }
 
   append(segment) {
-    if (this.destroyed || !this.mediaSource) {
+    // paused by the user: nothing to show, resume starts over at the live edge
+    if (this.destroyed || !this.mediaSource || this.userPaused) {
       return;
     }
 
@@ -187,8 +196,7 @@ export default class MsePlayer {
 
   play() {
     this.userPaused = false;
-    this.followLiveEdge();
-    this.video.play().catch(() => {});
+    this.onResume();
   }
 
   get paused() {
@@ -221,6 +229,7 @@ export default class MsePlayer {
   destroy() {
     this.destroyed = true;
     this.video.removeEventListener('playing', this.handlePlaying);
+    this.video.removeEventListener('error', this.handleVideoError);
     this.reset();
   }
 }
