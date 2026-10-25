@@ -1,5 +1,6 @@
 'use-strict';
 
+import compareVersions from 'compare-versions';
 import fs from 'fs-extra';
 import os from 'os';
 import path from 'path';
@@ -53,6 +54,34 @@ const ensureRestoreTarget = async (targetPath, type) => {
 
   if (type === 'file' && !stats.isFile()) {
     throw new Error(`Invalid backup archive: ${path.basename(targetPath)} must be a file`);
+  }
+};
+
+const ensureCompatibleVersion = (infoFile) => {
+  const backupVersion = infoFile?.version;
+  const currentVersion = ConfigService.ui.version;
+
+  if (
+    compareVersions.validate(backupVersion) &&
+    compareVersions.validate(currentVersion) &&
+    compareVersions.compare(backupVersion, currentVersion, '>')
+  ) {
+    throw new Error(
+      `Invalid backup archive: created with camera.ui v${backupVersion}, update to v${backupVersion} or newer before restoring it`
+    );
+  }
+};
+
+// Parse the database before the live one is replaced, a damaged backup would otherwise prevent startup
+const ensureReadableDatabase = async (databasePath) => {
+  const databaseFile = path.resolve(databasePath, 'database.json');
+
+  await ensureRestoreTarget(databaseFile, 'file');
+
+  try {
+    await fs.readJSON(databaseFile);
+  } catch {
+    throw new Error('Invalid backup archive: database.json is damaged');
   }
 };
 
@@ -155,6 +184,9 @@ export const restoreBackup = async (file) => {
     await ensureRestoreTarget(backupRecordingsPath, 'directory');
 
     const infoFile = await fs.readJSON(infoPath);
+
+    ensureCompatibleVersion(infoFile);
+    await ensureReadableDatabase(databasePath);
 
     // move the content to desired directories
     await fs.move(databasePath, ConfigService.databasePath, { overwrite: true });
