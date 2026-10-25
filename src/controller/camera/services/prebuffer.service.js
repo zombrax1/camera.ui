@@ -4,7 +4,7 @@ import isEqual from 'lodash/isEqual.js';
 import { createServer } from 'net';
 import { EventEmitter } from 'events';
 import moment from 'moment';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import * as cameraUtils from '../utils/camera.utils.js';
 import Ping from '../../../common/ping.js';

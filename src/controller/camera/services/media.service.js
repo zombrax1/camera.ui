@@ -1,7 +1,7 @@
 'use-strict';
 
 import readline from 'readline';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import LoggerService from '../../../services/logger/logger.service.js';
 import ConfigService from '../../../services/config/config.service.js';

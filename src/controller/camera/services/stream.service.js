@@ -1,7 +1,7 @@
 'use-strict';
 
 import isEqual from 'lodash/isEqual.js';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import * as cameraUtils from '../utils/camera.utils.js';
 

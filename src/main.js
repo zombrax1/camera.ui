@@ -132,6 +132,10 @@ export default class Interface extends EventEmitter {
       }
     }
 
+    // recordings, snapshots, probes etc. that are still running
+    const { killAllProcesses } = await import('./common/child-processes.js');
+    killAllProcesses();
+
     this.#server?.close();
   }
 

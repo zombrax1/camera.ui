@@ -1,7 +1,7 @@
 'use-strict';
 
 import net from 'net';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import ConfigService from '../../../services/config/config.service.js';
 

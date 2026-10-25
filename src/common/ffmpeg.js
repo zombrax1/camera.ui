@@ -2,7 +2,7 @@
 
 import fs from 'fs-extra';
 import piexif from 'piexifjs';
-import { spawn } from 'child_process';
+import { spawn } from './child-processes.js';
 
 import * as cameraUtils from '../controller/camera/utils/camera.utils.js';
 

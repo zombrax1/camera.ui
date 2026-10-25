@@ -5,7 +5,7 @@ import compareVersions from 'compare-versions';
 import { createServer } from 'net';
 import { once } from 'events';
 import readline from 'readline';
-import { spawn } from 'child_process';
+import { spawn } from '../../../common/child-processes.js';
 
 import LoggerService from '../../../services/logger/logger.service.js';
 
