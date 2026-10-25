@@ -122,7 +122,17 @@ export default class MsePlayer {
       sourceBuffer.appendBuffer(data);
     } catch (error) {
       if (error.name === 'QuotaExceededError') {
-        this.trim(true);
+        // later frames depend on this data: append it again once old video has been removed
+        this.queue.unshift(data);
+        this.queuedBytes += data.byteLength;
+
+        // nothing left to remove, start over from the server's last keyframe
+        if (!this.trim(true)) {
+          this.queue = [];
+          this.queuedBytes = 0;
+          this.onResync();
+        }
+
         return;
       }
 
