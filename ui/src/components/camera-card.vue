@@ -35,7 +35,8 @@
         // Stream Canvas / Img Container
         .tw-w-full.tw-h-full(@click="!noLink && !blank ? $router.push(`cameras/${camera.name}`) : null" :class="!noLink && !blank ? 'tw-cursor-pointer' : ''")
           .tw-bg-black.tw-absolute.tw-inset-0(v-if="loading || false" style="border-radius: 10px;")
-          canvas.main.tw-w-full.tw-h-full(v-if="effectiveStream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
+          video.main.live-video.tw-w-full.tw-h-full(v-if="effectiveStream && useMse" ref="liveVideo" muted autoplay playsinline disablepictureinpicture)
+          canvas.main.tw-w-full.tw-h-full(v-else-if="effectiveStream" ref="streamBox" :width="canvasWidth" :height="canvasHeight")
           .tw-w-full.tw-h-full(v-else)
             .img-shadow-overlay
             v-img.main.tw-w-full.tw-h-full(:src="imgSource")
@@ -60,7 +61,7 @@
             .tw-ml-auto
             .tw-block.tw-p-2.tw-pr-0(v-if="!hideIndicatorReload")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="refreshStream(false)") {{ icons['mdiRefresh'] }}
-            .tw-block.tw-p-2.tw-pr-0(v-if="camera.settings.audio && !hideIndicatorAudio")
+            .tw-block.tw-p-2.tw-pr-0(v-if="camera.settings.audio && !hideIndicatorAudio && !useMse")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="handleVolume") {{ audio ? icons['mdiVolumeHigh'] : icons['mdiVolumeOff'] }}
             .tw-block.tw-p-2.tw-pr-0(v-if="!hideIndicatorFullscreen")
               v-icon.tw-p-1.tw-cursor-pointer.controller-button(size="22" @click="toggleFullscreen") {{ !fullscreen ? icons['mdiArrowExpand'] : icons['mdiArrowCollapse'] }}
@@ -89,6 +90,7 @@ import LightBox from 'vue-it-bigger';
 import 'vue-it-bigger/dist/vue-it-bigger.min.css';
 import JSMpeg from '@seydx/jsmpeg/lib/index.js';
 import JSMpegWritableSource from '@/common/jsmpeg-source.js';
+import MsePlayer, { isCodecSupported, isMseSupported } from '@/common/mse-player.js';
 import {
   mdiArrowExpand,
   mdiArrowCollapse,
@@ -106,6 +108,11 @@ import { getCameraSnapshot, getCameraStatus } from '@/api/cameras.api';
 const timeout = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const STREAM_STALL_TIMEOUT = 15000;
 const STREAM_WATCHDOG_INTERVAL = 5000;
+const LIVE_START_TIMEOUT = 15000;
+// tiles that can't play natively are transcoded on the server, keep that load bounded in a dense camview
+const DENSE_TRANSCODE_LIMIT = 4;
+
+let denseTranscodedStreams = 0;
 const SNAPSHOT_REQUEST_CONCURRENCY = 2;
 const CAMVIEW_SNAPSHOT_REFRESH_SECONDS = 8;
 
@@ -191,6 +198,10 @@ export default {
     play: false,
     player: null,
     lastStreamDataAt: 0,
+    liveSession: null,
+    mseFailed: false,
+    countedAsTranscoded: false,
+    msePlayer: null,
     snapshotTimerTimeout: null,
     snapshotTimeout: null,
     streamFallbackSnapshot: false,
@@ -202,6 +213,13 @@ export default {
   computed: {
     effectiveStream() {
       return this.stream && !this.streamFallbackSnapshot;
+    },
+    // camview tiles play the camera video natively (no transcoding), so many cameras can run at once
+    useMse() {
+      return this.streamMode === 'camview' && !this.mseFailed && isMseSupported();
+    },
+    liveVariant() {
+      return this.denseStream ? 'sub' : 'main';
     },
     canvasHeight() {
       return this.denseStream ? 360 : 720;
@@ -268,7 +286,15 @@ export default {
       window.removeEventListener('resize', this.resizeFullscreenVideo);
     },
     handleStartStop() {
-      if (this.player) {
+      if (this.msePlayer) {
+        if (this.msePlayer.paused) {
+          this.msePlayer.play();
+          this.play = true;
+        } else {
+          this.msePlayer.pause();
+          this.play = false;
+        }
+      } else if (this.player) {
         const paused = this.player.paused;
 
         if (paused) {
@@ -343,7 +369,9 @@ export default {
         this.streamTimeout = null;
       }
 
-      if (rejoin === true) {
+      if (this.msePlayer) {
+        this.refreshLiveStream(rejoin);
+      } else if (rejoin === true) {
         this.$socket.client.emit('rejoin_stream', this.streamSocketPayload());
       } else {
         this.offline = false;
@@ -491,8 +519,17 @@ export default {
 
         const status = await getCameraStatus(this.camera.name, this.camera.settings.pingTimeout);
 
+        if (this.destroyed) {
+          return;
+        }
+
         if (status.data.status === 'ONLINE') {
           this.offline = false;
+
+          if (this.useMse) {
+            this.startLiveStream();
+            return;
+          }
 
           this.player = new JSMpeg.Player(null, {
             source: JSMpegWritableSource,
@@ -545,6 +582,12 @@ export default {
     },
     destroy() {
       this.destroyed = true;
+
+      if (this.countedAsTranscoded) {
+        denseTranscodedStreams--;
+        this.countedAsTranscoded = false;
+      }
+
       this.stopStream();
       this.stopSnapshot();
 
@@ -566,6 +609,11 @@ export default {
       }
     },
     stopStream() {
+      if (this.msePlayer) {
+        this.stopLiveStream();
+        return;
+      }
+
       if (this.player) {
         this.player.destroy();
         this.player = null;
@@ -603,11 +651,151 @@ export default {
         this.$toast[level] ? this.$toast[level](message) : this.$toast.warning(message);
       }
     },
+    startLiveStream() {
+      this.msePlayer = new MsePlayer(this.$refs.liveVideo, {
+        onPlaying: () => {
+          this.loading = false;
+          this.offline = false;
+          this.play = true;
+
+          if (this.streamTimeout) {
+            clearTimeout(this.streamTimeout);
+            this.streamTimeout = null;
+          }
+        },
+        onError: (error) => this.handleLiveFailure(error),
+        onResync: () => this.$socket.client.emit('join_live', this.liveSession),
+      });
+
+      this.liveSession = {
+        feed: this.camera.name,
+        variant: this.liveVariant,
+      };
+
+      this.$socket.client.on('live_init', this.onLiveInit);
+      this.$socket.client.on('live_error', this.onLiveError);
+      this.$socket.client.on(this.liveEventName(), this.writeLive);
+
+      this.lastStreamDataAt = Date.now();
+      this.$socket.client.emit('join_live', this.liveSession);
+
+      this.startStreamWatchdog();
+      this.startLiveTimeout();
+    },
+    startLiveTimeout() {
+      if (this.streamTimeout) {
+        clearTimeout(this.streamTimeout);
+      }
+
+      this.streamTimeout = setTimeout(() => {
+        if (this.loading) {
+          this.handleLiveFailure(new Error(this.$t('timeout')));
+        }
+      }, Math.min(LIVE_START_TIMEOUT, this.timeout * 1000));
+    },
+    refreshLiveStream(rejoin) {
+      this.lastStreamDataAt = Date.now();
+
+      if (rejoin === true) {
+        // the socket reconnected and lost its rooms
+        this.$socket.client.emit('join_live', this.liveSession);
+        return;
+      }
+
+      this.offline = false;
+      this.loading = true;
+      this.$socket.client.emit('refresh_live', this.liveSession);
+      this.startLiveTimeout();
+    },
+    stopLiveStream() {
+      this.$socket.client.off('live_init', this.onLiveInit);
+      this.$socket.client.off('live_error', this.onLiveError);
+
+      if (this.liveSession) {
+        this.$socket.client.off(this.liveEventName(), this.writeLive);
+        this.$socket.client.emit('leave_live', this.liveSession);
+        this.liveSession = null;
+      }
+
+      if (this.msePlayer) {
+        this.msePlayer.destroy();
+        this.msePlayer = null;
+      }
+
+      if (this.streamTimeout) {
+        clearTimeout(this.streamTimeout);
+        this.streamTimeout = null;
+      }
+
+      this.stopStreamWatchdog();
+    },
+    // e.g. a codec the browser can't play (H.265 in most browsers), fall back to the transcoded stream
+    handleLiveFailure(error) {
+      if (!this.msePlayer) {
+        return;
+      }
+
+      console.log(`${this.camera.name}: native live view not available`, error?.message || error);
+
+      this.stopLiveStream();
+      this.mseFailed = true;
+      this.loading = true;
+
+      if (this.denseStream) {
+        if (denseTranscodedStreams >= DENSE_TRANSCODE_LIMIT) {
+          this.streamFallbackSnapshot = true;
+          this.offline = false;
+          this.startSnapshot();
+          return;
+        }
+
+        denseTranscodedStreams++;
+        this.countedAsTranscoded = true;
+      }
+
+      this.$nextTick(() => {
+        if (!this.destroyed) {
+          this.startStream();
+        }
+      });
+    },
+    isLiveEvent(data) {
+      return (
+        Boolean(this.liveSession) && data?.feed === this.liveSession.feed && data?.variant === this.liveSession.variant
+      );
+    },
+    liveEventName() {
+      return `live/${this.liveSession.variant}/${this.liveSession.feed}`;
+    },
+    onLiveInit(data) {
+      if (!this.msePlayer || !this.isLiveEvent(data)) {
+        return;
+      }
+
+      if (!isCodecSupported(data.codec)) {
+        this.handleLiveFailure(new Error(`Codec not supported: ${data.codec}`));
+        return;
+      }
+
+      this.lastStreamDataAt = Date.now();
+      this.msePlayer.init(data.codec, data.init);
+    },
+    onLiveError(data) {
+      if (this.isLiveEvent(data)) {
+        this.handleLiveFailure(new Error(data.message));
+      }
+    },
+    writeLive(segment) {
+      if (this.msePlayer) {
+        this.lastStreamDataAt = Date.now();
+        this.msePlayer.append(segment);
+      }
+    },
     startStreamWatchdog() {
       this.stopStreamWatchdog();
 
       this.streamWatchdogInterval = setInterval(() => {
-        if (!this.player || this.loading || this.offline || !this.lastStreamDataAt) {
+        if ((!this.player && !this.msePlayer) || this.loading || this.offline || !this.lastStreamDataAt) {
           return;
         }
 
@@ -673,6 +861,11 @@ export default {
 
 .video-card-container {
   height: 100%;
+}
+
+.live-video {
+  object-fit: fill;
+  background: #000;
 }
 
 .video-card {

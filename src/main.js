@@ -127,6 +127,8 @@ export default class Interface extends EventEmitter {
         controller.prebuffer.stop(true);
         controller.videoanalysis.stop(true);
         controller.stream.stop();
+        controller.live.main.stop();
+        controller.live.sub.stop();
       }
     }
 

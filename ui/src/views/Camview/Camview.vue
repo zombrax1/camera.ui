@@ -66,6 +66,7 @@ import { getNotifications } from '@/api/notifications.api';
 import { getSetting, changeSetting } from '@/api/settings.api';
 
 import VideoCard from '@/components/camera-card.vue';
+import { isMseSupported } from '@/common/mse-player.js';
 
 import socket from '@/mixins/socket';
 
@@ -212,15 +213,16 @@ export default {
 
       this.fullscreen = false;
     },
+    // native live view is cheap, all cameras start at once; the transcoded fallback is staggered and limited
     cameraStartDelay(index) {
-      return Math.min(index * CAMERA_START_DELAY_MS, 2500);
+      return isMseSupported() ? 0 : Math.min(index * CAMERA_START_DELAY_MS, 2500);
     },
     shouldUseLiveStream(camera, index) {
       if (!camera.live) {
         return false;
       }
 
-      if (!this.denseStream) {
+      if (!this.denseStream || isMseSupported()) {
         return true;
       }
 
